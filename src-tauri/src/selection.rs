@@ -1,0 +1,219 @@
+//! 全局鼠标钩子：检测“拖选松开”或“双击”，模拟 Ctrl+C 取选中文本
+use rdev::{listen, simulate, Button, EventType, Key};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
+use std::time::{Duration, Instant};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition};
+
+pub static ENABLED: AtomicBool = AtomicBool::new(true);
+
+fn dist(a: (f64, f64), b: (f64, f64)) -> f64 {
+    ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt()
+}
+
+pub fn start(app: AppHandle) {
+    thread::spawn(move || {
+        let mut pos = (0.0, 0.0);
+        let mut down_pos = (0.0, 0.0);
+        let mut last_up = Instant::now() - Duration::from_secs(10);
+        let mut last_up_pos = (0.0, 0.0);
+        let mut seq_at_press = 0u32;
+        let res = listen(move |ev| match ev.event_type {
+            EventType::MouseMove { x, y } => pos = (x, y),
+            EventType::ButtonPress(Button::Left) => {
+                down_pos = pos;
+                seq_at_press = clip_seq();
+            }
+            EventType::ButtonRelease(Button::Left) => {
+                let dragged = dist(pos, down_pos) > 8.0;
+                let dbl = last_up.elapsed() < Duration::from_millis(400) && dist(pos, last_up_pos) < 6.0;
+                last_up = Instant::now();
+                last_up_pos = pos;
+                if !ENABLED.load(Ordering::Relaxed) || !(dragged || dbl) || in_popup(&app, pos) {
+                    return;
+                }
+                let app = app.clone();
+                let p = pos;
+                let seq = seq_at_press;
+                thread::spawn(move || on_select(app, p, seq));
+            }
+            _ => {}
+        });
+        if let Err(e) = res {
+            eprintln!("mouse hook error: {:?}", e);
+        }
+    });
+}
+
+fn in_popup(app: &AppHandle, p: (f64, f64)) -> bool {
+    let Some(w) = app.get_webview_window("popup") else { return false };
+    if !w.is_visible().unwrap_or(false) {
+        return false;
+    }
+    match (w.outer_position(), w.outer_size()) {
+        (Ok(o), Ok(s)) => {
+            p.0 >= o.x as f64 && p.0 <= (o.x + s.width as i32) as f64 && p.1 >= o.y as f64 && p.1 <= (o.y + s.height as i32) as f64
+        }
+        _ => false,
+    }
+}
+
+fn clip_seq() -> u32 {
+    unsafe { windows::Win32::System::DataExchange::GetClipboardSequenceNumber() }
+}
+
+/// 前台窗口所属进程的 exe 名（小写）
+fn fg_exe(pid: u32) -> String {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION};
+    unsafe {
+        let Ok(h) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else { return String::new() };
+        let mut buf = [0u16; 520];
+        let mut len = buf.len() as u32;
+        let ok = QueryFullProcessImageNameW(h, PROCESS_NAME_WIN32, windows::core::PWSTR(buf.as_mut_ptr()), &mut len).is_ok();
+        let _ = CloseHandle(h);
+        if !ok {
+            return String::new();
+        }
+        let path = String::from_utf16_lossy(&buf[..len as usize]).to_lowercase();
+        path.rsplit('\\').next().unwrap_or("").to_string()
+    }
+}
+
+/// “选中即复制”类终端：等待剪贴板序号变化后读取（不发 Ctrl+C）
+fn wait_auto_copy(seq_at_press: u32) -> Option<String> {
+    for _ in 0..12 {
+        if clip_seq() != seq_at_press {
+            thread::sleep(Duration::from_millis(30));
+            return arboard::Clipboard::new().ok()?.get_text().ok().filter(|t| !t.trim().is_empty());
+        }
+        thread::sleep(Duration::from_millis(25));
+    }
+    None
+}
+
+#[derive(PartialEq)]
+enum Fg {
+    Own,
+    Terminal,
+    Normal,
+}
+
+const TERM_EXES: &[&str] = &[
+    "mobaxterm.exe", "mobaxterm_personal.exe", "putty.exe", "kitty.exe", "mintty.exe", "xshell.exe",
+    "securecrt.exe", "termius.exe", "tabby.exe", "wezterm-gui.exe", "alacritty.exe", "conemu64.exe",
+    "conemu.exe", "windowsterminal.exe", "cmd.exe", "powershell.exe", "pwsh.exe", "finalshell.exe",
+];
+
+fn foreground_kind() -> Fg {
+    use windows::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetForegroundWindow, GetWindowThreadProcessId};
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        if pid == std::process::id() {
+            return Fg::Own;
+        }
+        let mut buf = [0u16; 256];
+        let n = GetClassNameW(hwnd, &mut buf) as usize;
+        let class = String::from_utf16_lossy(&buf[..n]);
+        let exe = fg_exe(pid);
+        if matches!(class.as_str(), "ConsoleWindowClass" | "CASCADIA_HOSTING_WINDOW_CLASS" | "mintty" | "PuTTY" | "VirtualConsoleClass")
+            || TERM_EXES.contains(&exe.as_str())
+            || exe.starts_with("mobaxterm")
+        {
+            Fg::Terminal
+        } else {
+            Fg::Normal
+        }
+    }
+}
+
+/// 通过 UI Automation 的 TextPattern 直接读取选中文本：不发按键、不碰剪贴板。
+/// Windows Terminal、conhost、记事本、Office、VS Code 等都支持。
+fn uia_selection() -> Option<String> {
+    use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED};
+    use windows::Win32::UI::Accessibility::{CUIAutomation, IUIAutomation, IUIAutomationTextPattern, UIA_TextPatternId};
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        let uia: IUIAutomation = CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER).ok()?;
+        let el = uia.GetFocusedElement().ok()?;
+        let pat: IUIAutomationTextPattern = el.GetCurrentPatternAs(UIA_TextPatternId).ok()?;
+        let ranges = pat.GetSelection().ok()?;
+        let mut s = String::new();
+        for i in 0..ranges.Length().ok()? {
+            if let Ok(r) = ranges.GetElement(i) {
+                if let Ok(t) = r.GetText(-1) {
+                    s.push_str(&t.to_string());
+                }
+            }
+        }
+        let s = s.trim().to_string();
+        (!s.is_empty()).then_some(s)
+    }
+}
+
+fn key(ev: EventType) {
+    let _ = simulate(&ev);
+    thread::sleep(Duration::from_millis(15));
+}
+
+fn copy_selection() -> Option<String> {
+    let mut cb = arboard::Clipboard::new().ok()?;
+    let old = cb.get_text().ok();
+    let _ = cb.clear();
+    key(EventType::KeyPress(Key::ControlLeft));
+    key(EventType::KeyPress(Key::KeyC));
+    key(EventType::KeyRelease(Key::KeyC));
+    key(EventType::KeyRelease(Key::ControlLeft));
+    let mut text = None;
+    for _ in 0..12 {
+        thread::sleep(Duration::from_millis(25));
+        if let Ok(t) = cb.get_text() {
+            if !t.trim().is_empty() {
+                text = Some(t);
+                break;
+            }
+        }
+    }
+    // 恢复用户原来的剪贴板（目前只恢复文本）
+    if let Some(o) = old {
+        let _ = cb.set_text(o);
+    }
+    text
+}
+
+fn on_select(app: AppHandle, p: (f64, f64), seq_at_press: u32) {
+    thread::sleep(Duration::from_millis(60));
+    let text = match foreground_kind() {
+        Fg::Own => return,
+        // 终端里绝不发 Ctrl+C（没选中时会中断程序）：先 UIA，再看是否“选中即复制”
+        Fg::Terminal => uia_selection().or_else(|| wait_auto_copy(seq_at_press)),
+        // 其它程序优先 UIA，读不到再退回 Ctrl+C
+        Fg::Normal => uia_selection().or_else(copy_selection),
+    };
+    let Some(text) = text else { return };
+    let text = text.trim().to_string();
+    if text.is_empty() || text.chars().count() > 8000 {
+        return;
+    }
+    show_popup(&app, p, text);
+}
+
+pub fn show_popup(app: &AppHandle, p: (f64, f64), text: String) {
+    let Some(w) = app.get_webview_window("popup") else { return };
+    let (mut x, mut y) = (p.0 as i32 + 12, p.1 as i32 + 18);
+    if let (Ok(Some(m)), Ok(s)) = (w.monitor_from_point(p.0, p.1), w.outer_size()) {
+        let mp = m.position();
+        let ms = m.size();
+        x = x.min(mp.x + ms.width as i32 - s.width as i32 - 8).max(mp.x);
+        if y + s.height as i32 > mp.y + ms.height as i32 - 40 {
+            y = p.1 as i32 - s.height as i32 - 12;
+        }
+        y = y.max(mp.y);
+    }
+    let _ = w.set_position(PhysicalPosition::new(x, y));
+    let _ = w.show();
+    let _ = w.set_focus();
+    let _ = w.emit_to("popup", "selection", text);
+}

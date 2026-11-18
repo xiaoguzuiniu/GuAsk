@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh">
+<head><meta charset="utf-8"><link rel="stylesheet" href="style.css"></head>
+<body>
+<div class="wrap">
+  <div class="bar" data-tauri-drag-region>
+    <span class="title" data-tauri-drag-region>GuTool</span>
+    <div class="seg">
+      <button id="mTrans" class="on">翻译</button>
+      <button id="mAsk">提问</button>
+    </div>
+    <button id="pin" class="icon" title="固定（失焦不关闭）">📌</button>
+    <button id="close" class="icon" title="关闭 (Esc)">✕</button>
+  </div>
+  <div class="src" id="src"></div>
+  <div id="out"></div>
+  <div class="ask" id="askBox">
+    <input id="q" placeholder="输入问题，回车发送">
+    <button id="send">发送</button>
+  </div>
+</div>
+<script src="md.js"></script>
+<script src="popup.js"></script>
+</body>
+</html>

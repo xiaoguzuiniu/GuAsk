@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh">
+<head><meta charset="utf-8"><link rel="stylesheet" href="style.css"></head>
+<body>
+<div class="form">
+  <h3>GuTool 设置</h3>
+  <label>API Base URL（OpenAI 兼容）</label>
+  <input type="text" id="base_url" placeholder="https://api.deepseek.com/v1">
+  <label>API Key</label>
+  <input type="password" id="api_key">
+  <label>模型</label>
+  <input type="text" id="model" placeholder="deepseek-chat / gpt-4o-mini / qwen-plus">
+  <label>目标语言</label>
+  <input type="text" id="target_lang">
+  <label><input type="checkbox" id="auto_translate"> 划词后自动翻译</label>
+  <label>翻译提示词（{lang} 会替换为目标语言）</label>
+  <textarea id="translate_prompt"></textarea>
+  <label>提问提示词</label>
+  <textarea id="ask_prompt"></textarea>
+  <p><button id="save" class="on">保存</button> <span id="tip"></span></p>
+</div>
+<script>
+const { invoke } = window.__TAURI__.core;
+const keys = ["base_url", "api_key", "model", "target_lang", "translate_prompt", "ask_prompt"];
+const $ = (id) => document.getElementById(id);
+invoke("get_config").then((c) => {
+  keys.forEach((k) => ($(k).value = c[k]));
+  $("auto_translate").checked = c.auto_translate;
+});
+$("save").onclick = async () => {
+  const c = { auto_translate: $("auto_translate").checked };
+  keys.forEach((k) => (c[k] = $(k).value));
+  try { await invoke("save_config", { cfg: c }); $("tip").textContent = "已保存"; }
+  catch (e) { $("tip").textContent = "保存失败：" + e; }
+};
+</script>
+</body>
+</html>

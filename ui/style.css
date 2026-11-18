@@ -1,0 +1,50 @@
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; font: 14px/1.65 "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif; color: #1f2328; background: #fff; }
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-thumb { background: #d4d4d8; border-radius: 3px; }
+
+.wrap { display: flex; flex-direction: column; height: 100vh; border: 1px solid #e4e4e7; }
+.bar { display: flex; align-items: center; gap: 4px; padding: 6px 8px 6px 12px; user-select: none; }
+.bar .title { flex: 1; font-weight: 600; font-size: 13px; color: #52525b; }
+
+button { border: none; background: transparent; border-radius: 6px; padding: 3px 10px; cursor: pointer; font: inherit; font-size: 13px; color: #52525b; }
+button:hover { background: #f4f4f5; }
+.seg { display: flex; background: #f4f4f5; border-radius: 8px; padding: 2px; margin-right: 4px; }
+.seg button.on { background: #fff; color: #2563eb; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.icon { padding: 3px 7px; }
+.icon.on { color: #2563eb; background: #eff6ff; }
+
+.src { margin: 0 12px; padding: 6px 10px; border-left: 3px solid #93c5fd; background: #f8fafc; border-radius: 4px;
+       max-height: 64px; overflow: auto; white-space: pre-wrap; font-size: 13px; color: #475569; }
+#out { flex: 1; overflow: auto; padding: 4px 14px 8px; }
+
+.msg { margin: 8px 0; word-break: break-word; }
+.msg.user { align-self: flex-end; margin-left: 40px; padding: 6px 10px; background: #eff6ff; border-radius: 8px; color: #1e3a8a; white-space: pre-wrap; }
+.msg.err { color: #dc2626; white-space: pre-wrap; }
+.msg.loading, .msg.hint { color: #a1a1aa; }
+
+.md h3, .md h4, .md h5, .md h6 { margin: 10px 0 4px; font-size: 15px; }
+.md h3 { font-size: 17px; }
+.md p { margin: 4px 0 8px; }
+.md ul, .md ol { margin: 4px 0 8px; padding-left: 20px; }
+.md li { margin: 2px 0; }
+.md b { color: #0f172a; }
+.md code { background: #f4f4f5; padding: 1px 5px; border-radius: 4px; font: 12.5px Consolas, monospace; }
+.md pre { background: #f6f8fa; padding: 8px 10px; border-radius: 6px; overflow: auto; }
+.md pre code { background: none; padding: 0; }
+.md blockquote { margin: 6px 0; padding: 2px 10px; border-left: 3px solid #e4e4e7; color: #52525b; }
+.md hr { border: none; border-top: 1px solid #e4e4e7; margin: 10px 0; }
+
+.ask { display: flex; gap: 6px; padding: 8px 10px; border-top: 1px solid #f0f0f0; }
+.ask input { flex: 1; padding: 6px 10px; border: 1px solid #e4e4e7; border-radius: 8px; font: inherit; outline: none; }
+.ask input:focus { border-color: #93c5fd; }
+.ask button { background: #2563eb; color: #fff; border-radius: 8px; padding: 4px 14px; }
+.ask button:hover { background: #1d4ed8; }
+
+/* 设置页 */
+label { display: block; margin: 12px 0 4px; font-weight: 600; }
+.form { padding: 16px 20px; }
+.form input[type=text], .form input[type=password], .form textarea { width: 100%; padding: 6px 8px; border: 1px solid #d0d7de; border-radius: 6px; font: inherit; }
+.form textarea { height: 80px; }
+.form button.on { background: #2563eb; color: #fff; }
