@@ -48,7 +48,7 @@ async function run(userContent) {
   try {
     await invoke("chat", {
       messages: [{ role: "system", content: sysPrompt() }, ...history],
-      model: mode === "ask" ? $("askModel").value || null : null,
+      model: mode === "ask" ? curModel() || null : null,
       onEvent: ch,
     });
     history.push({ role: "assistant", content: acc });
@@ -72,23 +72,34 @@ function setMode(m) {
   } else {
     addMsg("hint", "针对选中的内容，你想问什么？");
     $("q").value = "";
+    autoGrow();
     setTimeout(() => $("q").focus(), 50);
   }
 }
 
 function fillModels() {
   const list = cfg.ask_models && cfg.ask_models.length ? cfg.ask_models : [cfg.model];
-  const sel = $("askModel");
-  sel.innerHTML = "";
-  list.forEach((m) => sel.add(new Option(m, m)));
-  sel.value = list.includes(cfg.ask_model) ? cfg.ask_model : list[0];
-  sel.style.display = list.length > 1 ? "" : "none";
+  const cur = list.includes(cfg.ask_model) ? cfg.ask_model : list[0];
+  $("mName").textContent = cur;
+  $("mMenu").innerHTML = "";
+  list.forEach((m) => {
+    const d = document.createElement("div");
+    d.textContent = m;
+    if (m === cur) d.className = "cur";
+    d.onclick = () => {
+      cfg.ask_model = m;
+      invoke("set_ask_model", { model: m });
+      fillModels();
+      $("mpick").classList.remove("open");
+      $("q").focus();
+    };
+    $("mMenu").appendChild(d);
+  });
+  $("mBtn").disabled = list.length < 2;
 }
-$("askModel").onchange = (e) => {
-  cfg.ask_model = e.target.value;
-  invoke("set_ask_model", { model: e.target.value });
-  $("q").focus();
-};
+const curModel = () => $("mName").textContent;
+$("mBtn").onclick = (e) => { e.stopPropagation(); $("mpick").classList.toggle("open"); };
+document.addEventListener("click", () => $("mpick").classList.remove("open"));
 
 listen("selection", async (e) => {
   cfg = await invoke("get_config");
@@ -107,6 +118,7 @@ const send = () => {
   const q = $("q").value.trim();
   if (!q || busy) return;
   $("q").value = "";
+  autoGrow();
   const hint = document.querySelector(".msg.hint");
   if (hint) hint.remove();
   addMsg("user", q);
@@ -115,7 +127,9 @@ const send = () => {
   run(content);
 };
 $("send").onclick = send;
-$("q").addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
+const autoGrow = () => { const q = $("q"); q.style.height = "auto"; q.style.height = q.scrollHeight + "px"; $("send").disabled = !q.value.trim(); };
+$("q").addEventListener("input", autoGrow);
+$("q").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") win.hide(); });
 
 // 失焦自动隐藏（未固定时）
