@@ -59,7 +59,7 @@ fn main() {
             let enable_c = enable.clone();
             TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
-                .tooltip("GuTool 划词翻译")
+                .tooltip("GuAsk 划词翻译/提问")
                 .menu(&menu)
                 .on_menu_event(move |app, e| match e.id().as_ref() {
                     "enable" => {
@@ -92,5 +92,5 @@ fn main() {
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("error while running GuTool");
+        .expect("error while running GuAsk");
 }

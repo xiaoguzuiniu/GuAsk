@@ -1424,7 +1424,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "gutool"
+name = "guask"
 version = "0.1.0"
 dependencies = [
  "arboard",

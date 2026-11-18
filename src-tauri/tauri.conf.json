@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "GuTool",
+  "productName": "GuAsk",
   "version": "0.1.0",
-  "identifier": "com.gu.gutool",
+  "identifier": "com.gu.guask",
   "build": { "frontendDist": "../ui" },
   "app": {
     "withGlobalTauri": true,
@@ -11,7 +11,7 @@
       {
         "label": "popup",
         "url": "popup.html",
-        "title": "GuTool",
+        "title": "GuAsk",
         "width": 440,
         "height": 380,
         "visible": false,
@@ -23,7 +23,7 @@
       {
         "label": "settings",
         "url": "settings.html",
-        "title": "GuTool 设置",
+        "title": "GuAsk 设置",
         "width": 560,
         "height": 640,
         "visible": false,
