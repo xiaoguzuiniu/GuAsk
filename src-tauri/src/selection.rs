@@ -1,14 +1,26 @@
-//! 全局鼠标钩子：检测“拖选松开”或“双击”，模拟 Ctrl+C 取选中文本
+//! 全局钩子：记录划词手势，按下触发键（默认双击 Ctrl）后才取词并弹窗
 use rdev::{listen, simulate, Button, EventType, Key};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition};
 
 pub static ENABLED: AtomicBool = AtomicBool::new(true);
+/// 触发方式：ctrl2 / alt2 / shift2（双击修饰键）或 auto（划词即弹）
+pub static TRIGGER: Mutex<String> = Mutex::new(String::new());
 
 fn dist(a: (f64, f64), b: (f64, f64)) -> f64 {
     ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt()
+}
+
+fn trigger_keys(t: &str) -> Option<[Key; 2]> {
+    match t {
+        "alt2" => Some([Key::Alt, Key::AltGr]),
+        "shift2" => Some([Key::ShiftLeft, Key::ShiftRight]),
+        "auto" => None,
+        _ => Some([Key::ControlLeft, Key::ControlRight]),
+    }
 }
 
 pub fn start(app: AppHandle) {
@@ -18,11 +30,17 @@ pub fn start(app: AppHandle) {
         let mut last_up = Instant::now() - Duration::from_secs(10);
         let mut last_up_pos = (0.0, 0.0);
         let mut seq_at_press = 0u32;
+        // 最近一次划词手势：(时间, 按下时剪贴板序号)
+        let mut last_sel: Option<(Instant, u32)> = None;
+        // 双击修饰键检测
+        let mut mod_down = false; // 修饰键当前按下且期间无其它键
+        let mut last_tap: Option<Instant> = None;
         let res = listen(move |ev| match ev.event_type {
             EventType::MouseMove { x, y } => pos = (x, y),
             EventType::ButtonPress(Button::Left) => {
                 down_pos = pos;
                 seq_at_press = clip_seq();
+                last_tap = None;
             }
             EventType::ButtonRelease(Button::Left) => {
                 let dragged = dist(pos, down_pos) > 8.0;
@@ -32,19 +50,60 @@ pub fn start(app: AppHandle) {
                 if !ENABLED.load(Ordering::Relaxed) || !(dragged || dbl) || in_popup(&app, pos) {
                     return;
                 }
-                let app = app.clone();
-                let p = pos;
-                let seq = seq_at_press;
-                thread::spawn(move || on_select(app, p, seq));
+                last_sel = Some((Instant::now(), seq_at_press));
+                let trig = TRIGGER.lock().unwrap().clone();
+                if trigger_keys(&trig).is_none() {
+                    let app = app.clone();
+                    let p = pos;
+                    let seq = seq_at_press;
+                    thread::spawn(move || on_select(app, p, Some(seq)));
+                }
+            }
+            EventType::KeyPress(k) => {
+                let trig = TRIGGER.lock().unwrap().clone();
+                match trigger_keys(&trig) {
+                    Some(ks) if ks.contains(&k) => {
+                        if !mod_down {
+                            mod_down = true;
+                        }
+                    }
+                    _ => {
+                        // 中间按了别的键（如 Ctrl+C），作废
+                        mod_down = false;
+                        last_tap = None;
+                    }
+                }
+            }
+            EventType::KeyRelease(k) => {
+                let trig = TRIGGER.lock().unwrap().clone();
+                let Some(ks) = trigger_keys(&trig) else { return };
+                if !ks.contains(&k) || !mod_down {
+                    return;
+                }
+                mod_down = false;
+                let now = Instant::now();
+                match last_tap {
+                    Some(t) if now.duration_since(t) < Duration::from_millis(400) => {
+                        last_tap = None;
+                        if !ENABLED.load(Ordering::Relaxed) {
+                            return;
+                        }
+                        // 终端：仅当最近 15 秒内有划词手势时，才用“选中即复制”的剪贴板
+                        let seq = last_sel.filter(|(t, _)| t.elapsed() < Duration::from_secs(15)).map(|(_, s)| s);
+                        let app = app.clone();
+                        let p = pos;
+                        thread::spawn(move || on_select(app, p, seq));
+                    }
+                    _ => last_tap = Some(now),
+                }
             }
             _ => {}
         });
         if let Err(e) = res {
-            eprintln!("mouse hook error: {:?}", e);
+            eprintln!("input hook error: {:?}", e);
         }
     });
 }
-
 fn in_popup(app: &AppHandle, p: (f64, f64)) -> bool {
     let Some(w) = app.get_webview_window("popup") else { return false };
     if !w.is_visible().unwrap_or(false) {
@@ -183,12 +242,12 @@ fn copy_selection() -> Option<String> {
     text
 }
 
-fn on_select(app: AppHandle, p: (f64, f64), seq_at_press: u32) {
+fn on_select(app: AppHandle, p: (f64, f64), seq_at_press: Option<u32>) {
     thread::sleep(Duration::from_millis(60));
     let text = match foreground_kind() {
         Fg::Own => return,
         // 终端里绝不发 Ctrl+C（没选中时会中断程序）：先 UIA，再看是否“选中即复制”
-        Fg::Terminal => uia_selection().or_else(|| wait_auto_copy(seq_at_press)),
+        Fg::Terminal => uia_selection().or_else(|| seq_at_press.and_then(wait_auto_copy)),
         // 其它程序优先 UIA，读不到再退回 Ctrl+C
         Fg::Normal => uia_selection().or_else(copy_selection),
     };

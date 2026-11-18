@@ -24,6 +24,7 @@ fn get_config(state: State<AppState>) -> Config {
 #[tauri::command]
 fn save_config(app: AppHandle, state: State<AppState>, cfg: Config) -> Result<(), String> {
     config::save(app.path().app_config_dir().map_err(|e| e.to_string())?, &cfg)?;
+    *selection::TRIGGER.lock().unwrap() = cfg.trigger.clone();
     *state.cfg.lock().unwrap() = cfg;
     Ok(())
 }
@@ -68,6 +69,7 @@ fn main() {
             let dir = app.path().app_config_dir()?;
             let cfg = config::load(dir);
             let first_run = cfg.api_key.is_empty();
+            *selection::TRIGGER.lock().unwrap() = cfg.trigger.clone();
             app.manage(AppState { cfg: Mutex::new(cfg) });
 
             // 托盘
