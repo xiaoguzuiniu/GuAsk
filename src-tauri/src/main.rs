@@ -34,6 +34,16 @@ async fn chat(state: State<'_, AppState>, messages: Vec<llm::Msg>, on_event: Cha
     llm::chat(cfg, messages, on_event).await
 }
 
+#[tauri::command]
+async fn list_models(cfg: Config) -> Result<Vec<String>, String> {
+    llm::list_models(cfg).await
+}
+
+#[tauri::command]
+async fn test_connection(cfg: Config) -> Result<(u128, String), String> {
+    llm::test(cfg).await
+}
+
 fn open_settings(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("settings") {
         let _ = w.show();
@@ -43,7 +53,7 @@ fn open_settings(app: &AppHandle) {
 
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![get_config, save_config, chat])
+        .invoke_handler(tauri::generate_handler![get_config, save_config, chat, list_models, test_connection])
         .setup(|app| {
             let dir = app.path().app_config_dir()?;
             let cfg = config::load(dir);
