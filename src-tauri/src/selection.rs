@@ -9,6 +9,9 @@ use tauri::{AppHandle, Emitter, Manager, PhysicalPosition};
 pub static ENABLED: AtomicBool = AtomicBool::new(true);
 /// 触发方式：ctrl2 / alt2 / shift2（双击修饰键）或 auto（划词即弹）
 pub static TRIGGER: Mutex<String> = Mutex::new(String::new());
+/// 划词小图标对应的 (位置, 剪贴板序号)
+static BUBBLE: Mutex<Option<((f64, f64), u32)>> = Mutex::new(None);
+static BUBBLE_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 fn dist(a: (f64, f64), b: (f64, f64)) -> f64 {
     ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt()
@@ -18,7 +21,7 @@ fn trigger_keys(t: &str) -> Option<[Key; 2]> {
     match t {
         "alt2" => Some([Key::Alt, Key::AltGr]),
         "shift2" => Some([Key::ShiftLeft, Key::ShiftRight]),
-        "auto" => None,
+        "auto" | "icon" => None,
         _ => Some([Key::ControlLeft, Key::ControlRight]),
     }
 }
@@ -41,18 +44,23 @@ pub fn start(app: AppHandle) {
                 down_pos = pos;
                 seq_at_press = clip_seq();
                 last_tap = None;
+                if !in_window(&app, "bubble", pos) {
+                    hide_bubble(&app);
+                }
             }
             EventType::ButtonRelease(Button::Left) => {
                 let dragged = dist(pos, down_pos) > 8.0;
                 let dbl = last_up.elapsed() < Duration::from_millis(400) && dist(pos, last_up_pos) < 6.0;
                 last_up = Instant::now();
                 last_up_pos = pos;
-                if !ENABLED.load(Ordering::Relaxed) || !(dragged || dbl) || in_popup(&app, pos) {
+                if !ENABLED.load(Ordering::Relaxed) || !(dragged || dbl) || in_window(&app, "popup", pos) || in_window(&app, "bubble", pos) {
                     return;
                 }
                 last_sel = Some((Instant::now(), seq_at_press));
                 let trig = TRIGGER.lock().unwrap().clone();
-                if trigger_keys(&trig).is_none() {
+                if trig == "icon" {
+                    show_bubble(&app, pos, seq_at_press);
+                } else if trig == "auto" {
                     let app = app.clone();
                     let p = pos;
                     let seq = seq_at_press;
@@ -104,8 +112,8 @@ pub fn start(app: AppHandle) {
         }
     });
 }
-fn in_popup(app: &AppHandle, p: (f64, f64)) -> bool {
-    let Some(w) = app.get_webview_window("popup") else { return false };
+fn in_window(app: &AppHandle, label: &str, p: (f64, f64)) -> bool {
+    let Some(w) = app.get_webview_window(label) else { return false };
     if !w.is_visible().unwrap_or(false) {
         return false;
     }
@@ -242,7 +250,7 @@ fn copy_selection() -> Option<String> {
     text
 }
 
-fn on_select(app: AppHandle, p: (f64, f64), seq_at_press: Option<u32>) {
+pub fn on_select(app: AppHandle, p: (f64, f64), seq_at_press: Option<u32>) {
     thread::sleep(Duration::from_millis(60));
     let text = match foreground_kind() {
         Fg::Own => return,
@@ -275,4 +283,63 @@ pub fn show_popup(app: &AppHandle, p: (f64, f64), text: String) {
     let _ = w.show();
     let _ = w.set_focus();
     let _ = w.emit_to("popup", "selection", text);
+}
+
+/// 在鼠标旁显示小图标（不抢焦点，保持原程序的选区）
+fn show_bubble(app: &AppHandle, p: (f64, f64), seq: u32) {
+    let Some(w) = app.get_webview_window("bubble") else { return };
+    *BUBBLE.lock().unwrap() = Some((p, seq));
+    let gen = BUBBLE_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    let _ = w.set_position(PhysicalPosition::new(p.0 as i32 + 10, p.1 as i32 + 14));
+    if let Ok(h) = w.hwnd() {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::*;
+        unsafe {
+            let hwnd = HWND(h.0 as _);
+            let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex | (WS_EX_NOACTIVATE.0 | WS_EX_TOOLWINDOW.0 | WS_EX_TOPMOST.0) as isize);
+            let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+            let _ = SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        }
+    }
+    let app = app.clone();
+    thread::spawn(move || {
+        thread::sleep(Duration::from_secs(3));
+        if BUBBLE_GEN.load(Ordering::SeqCst) == gen {
+            hide_bubble(&app);
+        }
+    });
+}
+
+fn hide_bubble(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("bubble") {
+        if w.is_visible().unwrap_or(false) {
+            let _ = w.hide();
+        }
+    }
+}
+
+/// 小图标被点击：取词并弹窗
+pub fn bubble_click(app: AppHandle) {
+    BUBBLE_GEN.fetch_add(1, Ordering::SeqCst);
+    hide_bubble(&app);
+    if let Some((p, seq)) = BUBBLE.lock().unwrap().take() {
+        thread::spawn(move || on_select(app, p, Some(seq)));
+    }
+}
+
+pub fn cursor_pos() -> (f64, f64) {
+    use windows::Win32::Foundation::POINT;
+    use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+    let mut pt = POINT::default();
+    unsafe {
+        let _ = GetCursorPos(&mut pt);
+    }
+    (pt.x as f64, pt.y as f64)
+}
+
+/// 不划词，直接打开提问
+pub fn open_blank(app: &AppHandle) {
+    let p = cursor_pos();
+    show_popup(app, p, String::new());
 }

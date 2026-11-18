@@ -62,8 +62,17 @@ pub async fn test(cfg: Config) -> Result<(u128, String), String> {
     Ok((t.elapsed().as_millis(), reply))
 }
 
+/// 每次开始/停止生成都会递增，旧的流发现代数变化即退出
+pub static GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+pub fn stop() {
+    GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+}
+
 /// 调用 OpenAI 兼容接口，流式把增量文本推给前端
 pub async fn chat(cfg: Config, messages: Vec<Msg>, ch: Channel<String>) -> Result<(), String> {
+    use std::sync::atomic::Ordering;
+    let my = GEN.fetch_add(1, Ordering::SeqCst) + 1;
     if cfg.api_key.trim().is_empty() {
         return Err("未配置 API Key，请右键托盘图标 → 设置".into());
     }
@@ -82,6 +91,9 @@ pub async fn chat(cfg: Config, messages: Vec<Msg>, ch: Channel<String>) -> Resul
     let mut stream = resp.bytes_stream();
     let mut buf: Vec<u8> = Vec::new();
     while let Some(chunk) = stream.next().await {
+        if GEN.load(Ordering::SeqCst) != my {
+            return Ok(());
+        }
         buf.extend_from_slice(&chunk.map_err(|e| e.to_string())?);
         while let Some(i) = buf.iter().position(|&b| b == b'\n') {
             let line: Vec<u8> = buf.drain(..=i).collect();

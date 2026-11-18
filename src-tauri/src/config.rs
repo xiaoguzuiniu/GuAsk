@@ -20,6 +20,11 @@ pub struct Config {
     pub ask_prompt: String,
     /// 唤出方式：ctrl2 / alt2 / shift2 / auto
     pub trigger: String,
+    /// 全局快捷键：直接打开提问（空则禁用）
+    pub hotkey: String,
+    /// 弹窗大小（逻辑像素）
+    pub popup_w: f64,
+    pub popup_h: f64,
 }
 
 impl Default for Config {
@@ -36,6 +41,9 @@ impl Default for Config {
             translate_prompt: "你是专业翻译。把用户给的文本翻译成{lang}。如果是单个单词或短语，给出音标、词性、常用释义和1-2个例句；如果是句子或段落，只输出地道译文。".into(),
             ask_prompt: "你是知识渊博的助手。用户在阅读时选中了一段内容，请用{lang}简洁、准确地解释或回答。".into(),
             trigger: "ctrl2".into(),
+            hotkey: "Alt+Q".into(),
+            popup_w: 440.0,
+            popup_h: 380.0,
         }
     }
 }
