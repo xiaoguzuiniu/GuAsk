@@ -46,7 +46,11 @@ async function run(userContent) {
     $("out").scrollTop = 1e9;
   };
   try {
-    await invoke("chat", { messages: [{ role: "system", content: sysPrompt() }, ...history], onEvent: ch });
+    await invoke("chat", {
+      messages: [{ role: "system", content: sysPrompt() }, ...history],
+      model: mode === "ask" ? $("askModel").value || null : null,
+      onEvent: ch,
+    });
     history.push({ role: "assistant", content: acc });
   } catch (e) {
     el.className = "msg err";
@@ -72,8 +76,23 @@ function setMode(m) {
   }
 }
 
+function fillModels() {
+  const list = cfg.ask_models && cfg.ask_models.length ? cfg.ask_models : [cfg.model];
+  const sel = $("askModel");
+  sel.innerHTML = "";
+  list.forEach((m) => sel.add(new Option(m, m)));
+  sel.value = list.includes(cfg.ask_model) ? cfg.ask_model : list[0];
+  sel.style.display = list.length > 1 ? "" : "none";
+}
+$("askModel").onchange = (e) => {
+  cfg.ask_model = e.target.value;
+  invoke("set_ask_model", { model: e.target.value });
+  $("q").focus();
+};
+
 listen("selection", async (e) => {
   cfg = await invoke("get_config");
+  fillModels();
   text = e.payload;
   $("src").textContent = text;
   setMode(isChinese(text) ? "ask" : "translate");

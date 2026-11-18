@@ -29,9 +29,19 @@ fn save_config(app: AppHandle, state: State<AppState>, cfg: Config) -> Result<()
 }
 
 #[tauri::command]
-async fn chat(state: State<'_, AppState>, messages: Vec<llm::Msg>, on_event: Channel<String>) -> Result<(), String> {
-    let cfg = state.cfg.lock().unwrap().clone();
+async fn chat(state: State<'_, AppState>, messages: Vec<llm::Msg>, model: Option<String>, on_event: Channel<String>) -> Result<(), String> {
+    let mut cfg = state.cfg.lock().unwrap().clone();
+    if let Some(m) = model.filter(|m| !m.trim().is_empty()) {
+        cfg.model = m;
+    }
     llm::chat(cfg, messages, on_event).await
+}
+
+#[tauri::command]
+fn set_ask_model(app: AppHandle, state: State<AppState>, model: String) -> Result<(), String> {
+    let mut cfg = state.cfg.lock().unwrap();
+    cfg.ask_model = model;
+    config::save(app.path().app_config_dir().map_err(|e| e.to_string())?, &cfg)
 }
 
 #[tauri::command]
@@ -53,7 +63,7 @@ fn open_settings(app: &AppHandle) {
 
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![get_config, save_config, chat, list_models, test_connection])
+        .invoke_handler(tauri::generate_handler![get_config, save_config, chat, list_models, test_connection, set_ask_model])
         .setup(|app| {
             let dir = app.path().app_config_dir()?;
             let cfg = config::load(dir);

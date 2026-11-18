@@ -40,6 +40,16 @@ button.primary:hover { background: #1d4ed8; }
 .status.info { display: block; background: #f4f4f5; color: #52525b; }
 .footer { position: fixed; left: 0; right: 0; bottom: 0; background: rgba(255,255,255,.92); backdrop-filter: blur(6px); border-top: 1px solid #ebebee; padding: 10px 18px; display: flex; justify-content: flex-end; align-items: center; gap: 12px; }
 #tip { color: #16a34a; font-size: 12.5px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; min-height: 34px; padding: 5px; border: 1px dashed #e4e4e7; border-radius: 8px; }
+.chips:empty::before { content: "尚未选择，提问时将使用翻译模型"; color: #a1a1aa; font-size: 12px; padding: 2px 4px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; background: #eff6ff; color: #1d4ed8; border-radius: 6px; padding: 1px 4px 1px 8px; font-size: 12.5px; }
+.chip b { cursor: pointer; font-weight: 400; color: #60a5fa; padding: 0 4px; border-radius: 4px; }
+.chip b:hover { background: #dbeafe; color: #1d4ed8; }
+.picker { margin-top: 8px; max-height: 180px; overflow: auto; border: 1px solid #e4e4e7; border-radius: 8px; display: none; }
+.picker label { display: flex; align-items: center; gap: 8px; padding: 4px 10px; cursor: pointer; font-size: 12.5px; }
+.picker label:hover { background: #f4f4f5; }
+.picker input { width: auto; }
+.hint { color: #a1a1aa; font-size: 12px; margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -51,15 +61,23 @@ button.primary:hover { background: #1d4ed8; }
       <input id="base_url" placeholder="https://api.deepseek.com/v1"></label>
     <label class="field"><span>API Key</span>
       <div class="row"><input id="api_key" type="password" placeholder="sk-..."><button class="eye" id="eye" type="button">显示</button></div></label>
-    <label class="field"><span>模型<small>可手动输入，或点击“获取模型”从列表选择</small></span>
+    <div class="field"><span>翻译模型<small>划词翻译固定使用这个模型</small></span>
       <div class="row">
         <input id="model" list="models" placeholder="deepseek-chat">
         <button id="fetch" type="button">获取模型</button>
         <button id="test" type="button">测试连通性</button>
-      </div></label>
+      </div></div>
     <datalist id="models"></datalist>
-    <select id="modelSel" style="display:none;margin-top:8px"></select>
     <div class="status" id="status"></div>
+
+    <div class="field"><span>提问可选模型<small>弹窗里提问时可在这些模型间切换</small></span>
+      <div class="chips" id="chips"></div>
+      <div class="row" style="margin-top:8px">
+        <input id="filter" placeholder="先点“获取模型”，再在这里搜索并勾选">
+        <button id="addManual" type="button">手动添加</button>
+      </div>
+      <div class="picker" id="picker"></div>
+    </div>
   </div>
 
   <div class="card">
@@ -77,31 +95,67 @@ button.primary:hover { background: #1d4ed8; }
 const { invoke } = window.__TAURI__.core;
 const keys = ["base_url", "api_key", "model", "target_lang", "translate_prompt", "ask_prompt"];
 const $ = (id) => document.getElementById(id);
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-const form = () => { const c = { auto_translate: $("auto_translate").checked }; keys.forEach((k) => (c[k] = $(k).value.trim())); return c; };
+let cfg = {};
+let askModels = [];
+let allModels = [];
+
+const form = () => {
+  const c = { ...cfg, auto_translate: $("auto_translate").checked, ask_models: askModels, translate_model: "" };
+  keys.forEach((k) => (c[k] = $(k).value.trim()));
+  return c;
+};
 const status = (cls, msg) => { $("status").className = "status " + cls; $("status").textContent = msg; };
 
-invoke("get_config").then((c) => { keys.forEach((k) => ($(k).value = c[k] ?? "")); $("auto_translate").checked = c.auto_translate; });
+function renderChips() {
+  $("chips").innerHTML = askModels.map((m, i) => `<span class="chip">${esc(m)}<b data-i="${i}" title="移除">×</b></span>`).join("");
+}
+function renderPicker() {
+  const q = $("filter").value.trim().toLowerCase();
+  const list = allModels.filter((m) => m.toLowerCase().includes(q));
+  $("picker").style.display = allModels.length ? "block" : "none";
+  $("picker").innerHTML = list.map((m) => `<label><input type="checkbox" value="${esc(m)}" ${askModels.includes(m) ? "checked" : ""}>${esc(m)}</label>`).join("")
+    || `<div class="hint" style="padding:6px 10px">没有匹配的模型</div>`;
+}
+$("chips").onclick = (e) => { const i = e.target.dataset.i; if (i !== undefined) { askModels.splice(+i, 1); renderChips(); renderPicker(); } };
+$("picker").onchange = (e) => {
+  const m = e.target.value;
+  askModels = e.target.checked ? [...askModels, m] : askModels.filter((x) => x !== m);
+  renderChips();
+};
+$("filter").oninput = renderPicker;
+$("addManual").onclick = () => {
+  const m = $("filter").value.trim();
+  if (m && !askModels.includes(m)) { askModels.push(m); renderChips(); renderPicker(); }
+  $("filter").value = ""; renderPicker();
+};
+
+invoke("get_config").then((c) => {
+  cfg = c;
+  keys.forEach((k) => ($(k).value = c[k] ?? ""));
+  if (c.translate_model) $("model").value = c.translate_model;
+  $("auto_translate").checked = c.auto_translate;
+  askModels = c.ask_models || [];
+  renderChips();
+});
 
 $("eye").onclick = () => { const p = $("api_key").type === "password"; $("api_key").type = p ? "text" : "password"; $("eye").textContent = p ? "隐藏" : "显示"; };
 
 $("fetch").onclick = async () => {
   const b = $("fetch"); b.disabled = true; status("info", "正在获取模型列表…");
   try {
-    const list = await invoke("list_models", { cfg: form() });
-    $("models").innerHTML = list.map((m) => `<option value="${m}">`).join("");
-    const sel = $("modelSel");
-    sel.innerHTML = `<option value="">— 从 ${list.length} 个模型中选择 —</option>` + list.map((m) => `<option ${m === $("model").value ? "selected" : ""}>${m}</option>`).join("");
-    sel.style.display = list.length ? "block" : "none";
-    status(list.length ? "ok" : "err", list.length ? `获取到 ${list.length} 个模型` : "接口没有返回任何模型");
+    allModels = await invoke("list_models", { cfg: form() });
+    $("models").innerHTML = allModels.map((m) => `<option value="${esc(m)}">`).join("");
+    renderPicker();
+    status(allModels.length ? "ok" : "err", allModels.length ? `获取到 ${allModels.length} 个模型：翻译模型可在输入框下拉选择，提问模型请在下方勾选` : "接口没有返回任何模型");
   } catch (e) { status("err", "获取失败：" + e); }
   b.disabled = false;
 };
-$("modelSel").onchange = (e) => { if (e.target.value) $("model").value = e.target.value; };
 
 $("test").onclick = async () => {
   const c = form();
-  if (!c.model) return status("err", "请先填写模型");
+  if (!c.model) return status("err", "请先填写翻译模型");
   const b = $("test"); b.disabled = true; status("info", `正在测试 ${c.model} …`);
   try {
     const [ms, reply] = await invoke("test_connection", { cfg: c });
@@ -111,7 +165,7 @@ $("test").onclick = async () => {
 };
 
 $("save").onclick = async () => {
-  try { await invoke("save_config", { cfg: form() }); $("tip").style.color = "#16a34a"; $("tip").textContent = "✓ 已保存，立即生效"; }
+  try { cfg = form(); await invoke("save_config", { cfg }); $("tip").style.color = "#16a34a"; $("tip").textContent = "✓ 已保存，立即生效"; }
   catch (e) { $("tip").style.color = "#dc2626"; $("tip").textContent = "保存失败：" + e; }
   setTimeout(() => ($("tip").textContent = ""), 2500);
 };
