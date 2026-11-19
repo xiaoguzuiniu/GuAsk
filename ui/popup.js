@@ -264,6 +264,44 @@ listen("selection", async (e) => {
   else setMode(isChinese(text) ? "ask" : "translate", 0, true);
 });
 
+// 从历史记录打开：恢复到对应模式和会话，可继续追问
+listen("restore", async (e) => {
+  const it = e.payload;
+  cfg = await invoke("get_config");
+  fillModels();
+  let msgs = [];
+  try { msgs = JSON.parse(it.messages); } catch {}
+  const ti = (cfg.templates || []).findIndex((x) => x.name === it.mode);
+  const m = { "翻译": "translate", "单词": "translate", "代码": "code", "提问": "ask" }[it.mode] || (ti >= 0 ? "tpl" : "ask");
+  const first = (msgs[0] || {}).content || "";
+  // 提问时第一条消息里包着选中内容；无选中时 source 就是问题本身
+  const wrapped = first.match(/^我选中了这段内容：\n"""\n([\s\S]*?)\n"""\n\n我的问题：/);
+  text = m === "ask" ? (wrapped ? wrapped[1] : "") : it.source;
+  $("src").textContent = text;
+  fillTemplates();
+  setMode(m, Math.max(ti, 0), true);
+  $("out").innerHTML = "";
+  cur.history.push(...msgs);
+  cur.histId = it.id;
+  cur.label = it.mode;
+  msgs.forEach((msg, k) => {
+    if (msg.role === "user") {
+      if (k === 0 && m !== "ask") return; // 首条就是选中内容，上方已显示
+      let c = msg.content;
+      if (k === 0 && wrapped) c = c.slice(wrapped[0].length);
+      const sup = c.match(/^[\s\S]*?\n\n补充要求：([\s\S]*)$/);
+      addMsg("user", k === 0 && sup ? sup[1] : c);
+    } else {
+      const el = addMsg("md", "");
+      el.innerHTML = renderMd(msg.content);
+      addActions(el, () => msg.content, cur.history);
+    }
+  });
+  $("askBox").style.display = "flex"; // 历史会话都可以继续追问
+  $("out").scrollTop = 1e9;
+  setTimeout(() => $("q").focus(), 50);
+});
+
 $("mTrans").onclick = () => setMode("translate");
 $("mAsk").onclick = () => setMode("ask");
 $("mCode").onclick = () => setMode("code");

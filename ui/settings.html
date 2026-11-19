@@ -84,6 +84,11 @@ button.primary.done { background: #16a34a; border-color: #16a34a; }
 .hmsg.u { background: #eff6ff; color: #1e3a8a; border-radius: 8px; padding: 6px 10px; white-space: pre-wrap; word-break: break-word; }
 .hops { display: flex; gap: 6px; justify-content: flex-end; }
 .hops button { font-size: 12px; padding: 2px 8px; }
+.hops .hopen { color: #2563eb; font-weight: 600; }
+.hhead { position: relative; }
+.hgo { flex: none; border: none; background: #eff6ff; color: #2563eb; border-radius: 6px; font-size: 12px; padding: 2px 9px; cursor: pointer; opacity: 0; transition: opacity .15s; margin-top: 1px; }
+.hhead:hover .hgo { opacity: 1; }
+.hhead:hover .htime { display: none; }
 .more { display: block; margin: 8px auto; }
 mark { background: #fef08a; color: inherit; border-radius: 2px; }
 .empty { text-align: center; color: #a1a1aa; padding: 40px 0; }
@@ -344,7 +349,7 @@ async function loadHis(reset) {
     const ans = (msgs.find((m) => m.role === "assistant") || {}).content || "";
     return `<div class="hitem" data-i="${i}"><div class="hhead"><span class="tag t-${escA(it.mode)}">${escA(it.mode)}</span>
       <div class="hsrc"><div class="s">${mark(it.source)}</div><div class="a">${mark(ans.replace(/[#*`>]/g, "").slice(0, 200))}</div></div>
-      <span class="htime">${fmtTime(it.ts)}</span></div><div class="hbody"></div></div>`;
+      <span class="htime">${fmtTime(it.ts)}</span><button class="hgo hopen" type="button" title="在弹窗中打开，可继续追问">打开</button></div><div class="hbody"></div></div>`;
   }).join("") || `<div class="empty">${H.q || H.mode ? "没有匹配的记录" : "还没有历史记录，划词翻译/提问后会自动保存"}</div>`;
 }
 let hqTimer;
@@ -366,6 +371,7 @@ $("hlist").onclick = async (e) => {
   const cpy = e.target.closest(".cpy");
   if (cpy) { await navigator.clipboard.writeText(cpy.closest(".cb").querySelector("code").innerText); cpy.textContent = "已复制"; return; }
   if (e.target.closest(".hdel")) { await invoke("history_delete", { id: it.id }); H.items.splice(+item.dataset.i, 1); H.total--; item.remove(); $("hcount").textContent = `共 ${H.total} 条`; return; }
+  if (e.target.closest(".hopen") || (e.target.closest(".hhead") && e.detail === 2)) { invoke("history_open", { item: it }); return; }
   if (e.target.closest(".hcopy")) {
     let msgs = []; try { msgs = JSON.parse(it.messages); } catch {}
     const a = msgs.filter((m) => m.role === "assistant").pop();
@@ -378,7 +384,7 @@ $("hlist").onclick = async (e) => {
     body.innerHTML = msgs.map((m, k) => m.role === "user"
       ? (k === 0 ? "" : `<div class="hmsg u">${escA(m.content)}</div>`)
       : `<div class="hmsg md">${renderMd(m.content)}</div>`).join("")
-      + `<div class="hops"><span style="flex:1;color:#a1a1aa;font-size:11.5px;align-self:center">${escA(it.model || "")}</span><button class="hcopy" type="button">复制回答</button><button class="hdel danger" type="button">删除</button></div>`;
+      + `<div class="hops"><span style="flex:1;color:#a1a1aa;font-size:11.5px;align-self:center">${escA(it.model || "")}</span><button class="hopen" type="button">在弹窗中打开</button><button class="hcopy" type="button">复制回答</button><button class="hdel danger" type="button">删除</button></div>`;
   }
   item.classList.toggle("open");
 };

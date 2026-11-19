@@ -330,6 +330,17 @@ pub fn on_select(app: AppHandle, p: (f64, f64), seq_at_press: Option<u32>) {
 }
 
 pub fn show_popup(app: &AppHandle, p: (f64, f64), text: String) {
+    place_popup(app, p);
+    let _ = app.emit_to("popup", "selection", text);
+}
+
+/// 打开弹窗并恢复一条历史会话
+pub fn open_history(app: &AppHandle, item: crate::history::Item) {
+    place_popup(app, cursor_pos());
+    let _ = app.emit_to("popup", "restore", item);
+}
+
+fn place_popup(app: &AppHandle, p: (f64, f64)) {
     let Some(w) = app.get_webview_window("popup") else { return };
     let (mut x, mut y) = (p.0 as i32 + 12, p.1 as i32 + 18);
     if let (Ok(Some(m)), Ok(s)) = (w.monitor_from_point(p.0, p.1), w.outer_size()) {
@@ -344,7 +355,6 @@ pub fn show_popup(app: &AppHandle, p: (f64, f64), text: String) {
     let _ = w.set_position(PhysicalPosition::new(x, y));
     let _ = w.show();
     let _ = w.set_focus();
-    let _ = w.emit_to("popup", "selection", text);
 }
 
 /// 在鼠标旁显示小图标（不抢焦点，保持原程序的选区）

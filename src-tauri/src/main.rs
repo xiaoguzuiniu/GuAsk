@@ -84,6 +84,11 @@ fn history_delete(db: State<history::Db>, id: i64) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn history_open(app: tauri::AppHandle, item: history::Item) {
+    selection::open_history(&app, item);
+}
+
+#[tauri::command]
 fn history_clear(db: State<history::Db>) -> Result<(), String> {
     history::clear(&db)
 }
@@ -163,7 +168,7 @@ fn main() {
                 let _ = w.hide();
             }
         })
-        .invoke_handler(tauri::generate_handler![get_config, save_config, chat, list_models, test_connection, set_ask_model, get_autostart, set_autostart, bubble_click, save_popup_size, stop_chat, history_save, history_list, history_delete, history_clear])
+        .invoke_handler(tauri::generate_handler![get_config, save_config, chat, list_models, test_connection, set_ask_model, get_autostart, set_autostart, bubble_click, save_popup_size, stop_chat, history_save, history_list, history_delete, history_clear, history_open])
         .setup(|app| {
             let dir = app.path().app_config_dir()?;
             app.manage(history::open(&dir)?);
