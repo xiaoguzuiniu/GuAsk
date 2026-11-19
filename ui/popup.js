@@ -170,12 +170,21 @@ function setMode(m, ti) {
   $("out").innerHTML = "";
   history = [];
   histId = 0;
-  if (m === "translate" || m === "code" || m === "tpl") {
-    if (text) run(text);
-    else addMsg("hint", m === "translate" ? "没有选中的文本，切换到“提问”直接问吧" : "没有选中的内容，可以直接在下方输入");
+  if (m === "translate") {
+    // 不自动翻译：按空格或点击开始
+    if (text) {
+      const h = addMsg("hint start", "");
+      h.innerHTML = `按 <kbd>空格</kbd> 开始翻译`;
+      h.onclick = startTranslate;
+    } else addMsg("hint", "没有选中的文本，切换到“提问”直接问吧");
+  } else if (m === "code" || m === "tpl") {
+    // 不自动回答：发送后才开始（可直接回车发送，也可补充说明）
+    addMsg("hint", text
+      ? (m === "code" ? "识别为代码/报错，直接回车开始解释，或补充你的问题" : `「${cfg.templates[tplIdx].name}」：直接回车开始，或补充要求`)
+      : "没有选中的内容，可以直接在下方输入");
     $("q").value = "";
     autoGrow();
-    if (m !== "translate") setTimeout(() => $("q").focus(), 50);
+    setTimeout(() => $("q").focus(), 50);
   } else {
     addMsg("hint", text ? "针对选中的内容，你想问什么？" : "有什么想问的？");
     $("q").value = "";
@@ -266,9 +275,23 @@ $("out").addEventListener("click", async (e) => {
 $("close").onclick = () => win.hide();
 $("pin").onclick = () => { pinned = !pinned; $("pin").classList.toggle("on", pinned); };
 
+function startTranslate() {
+  if (mode !== "translate" || busy || !text || history.length) return;
+  const h = document.querySelector(".msg.hint"); if (h) h.remove();
+  run(text);
+}
+
 const send = () => {
   const q = $("q").value.trim();
-  if (!q || busy) return;
+  const direct = (mode === "code" || mode === "tpl") && history.length === 0 && text;
+  if ((!q && !direct) || busy) return;
+  if (direct) {
+    $("q").value = ""; autoGrow();
+    const h = document.querySelector(".msg.hint"); if (h) h.remove();
+    if (q) addMsg("user", q);
+    run(q ? `${text}\n\n补充要求：${q}` : text);
+    return;
+  }
   $("q").value = "";
   autoGrow();
   const hint = document.querySelector(".msg.hint");
@@ -280,10 +303,11 @@ const send = () => {
 };
 $("send").onclick = send;
 $("stop").onclick = () => stopFn && stopFn();
-const autoGrow = () => { const q = $("q"); q.style.height = "auto"; q.style.height = q.scrollHeight + "px"; $("send").disabled = !q.value.trim(); };
+const autoGrow = () => { const q = $("q"); q.style.height = "auto"; q.style.height = q.scrollHeight + "px"; $("send").disabled = !q.value.trim() && !((mode === "code" || mode === "tpl") && history.length === 0 && text); };
 $("q").addEventListener("input", autoGrow);
 $("q").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
 document.addEventListener("keydown", (e) => {
+  if (e.code === "Space" && mode === "translate" && !busy && history.length === 0 && document.activeElement.tagName !== "TEXTAREA") { e.preventDefault(); startTranslate(); return; }
   if (e.key === "Escape") { if (busy && stopFn) stopFn(); else win.hide(); }
 });
 
