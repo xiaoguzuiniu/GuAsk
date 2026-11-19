@@ -174,7 +174,6 @@ mark { background: #fef08a; color: inherit; border-radius: 2px; }
       </select></label>
     <label class="field"><span>快捷提问<small>不划词也能直接打开提问，如 Alt+Q、Ctrl+Shift+Space，留空禁用</small></span>
       <input id="hotkey" placeholder="Alt+Q"></label>
-    <label class="switch"><span>开机自动启动</span><input type="checkbox" id="autostart"><i></i></label>
     <label class="field"><span>目标语言</span><input id="target_lang" placeholder="简体中文"></label>
     <label class="switch"><span>划词后自动翻译 / 提问（英文自动翻译，中文进入提问）</span><input type="checkbox" id="auto_translate"><i></i></label>
     <label class="field"><span>翻译提示词<small>{lang} 会替换为目标语言</small></span><textarea id="translate_prompt"></textarea></label>
@@ -237,7 +236,6 @@ invoke("get_config").then((c) => {
   cfg = c;
   keys.forEach((k) => ($(k).value = c[k] ?? ""));
   if (!$("trigger").value) $("trigger").value = "ctrl2";
-  invoke("get_autostart").then((on) => ($("autostart").checked = on));
   if (c.translate_model) $("model").value = c.translate_model;
   fillModelSel();
   if (c.api_key) loadModels(true);
@@ -306,7 +304,6 @@ $("save").onclick = async () => {
   const b = $("save");
   try {
     const c = form(); await invoke("save_config", { cfg: c }); cfg = c;
-    await invoke("set_autostart", { on: $("autostart").checked });
     toast("设置已保存");
     b.textContent = "✓ 已保存"; b.classList.add("done");
     setTimeout(() => { b.textContent = "保存"; b.classList.remove("done"); }, 1500);
