@@ -125,6 +125,13 @@ fn main() {
                 })
                 .build(),
         )
+        // 关闭窗口只隐藏，程序常驻托盘
+        .on_window_event(|w, e| {
+            if let WindowEvent::CloseRequested { api, .. } = e {
+                api.prevent_close();
+                let _ = w.hide();
+            }
+        })
         .invoke_handler(tauri::generate_handler![get_config, save_config, chat, list_models, test_connection, set_ask_model, get_autostart, set_autostart, bubble_click, save_popup_size, stop_chat])
         .setup(|app| {
             let dir = app.path().app_config_dir()?;
@@ -159,18 +166,6 @@ fn main() {
                 })
                 .build(app)?;
 
-            // 关闭窗口只隐藏，程序常驻托盘
-            for label in ["popup", "settings"] {
-                if let Some(w) = app.get_webview_window(label) {
-                    let w2 = w.clone();
-                    w.on_window_event(move |e| {
-                        if let WindowEvent::CloseRequested { api, .. } = e {
-                            api.prevent_close();
-                            let _ = w2.hide();
-                        }
-                    });
-                }
-            }
 
             if let Err(e) = register_hotkey(app.handle(), &hotkey) {
                 eprintln!("{e}");
@@ -181,6 +176,12 @@ fn main() {
             }
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running GuAsk");
+        .build(tauri::generate_context!())
+        .expect("error while building GuAsk")
+        .run(|_app, e| {
+            // 只有托盘“退出”(带 code) 才真正退出
+            if let tauri::RunEvent::ExitRequested { code: None, api, .. } = e {
+                api.prevent_exit();
+            }
+        });
 }
