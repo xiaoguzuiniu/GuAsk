@@ -78,7 +78,7 @@ pub fn start(app: AppHandle) {
             }
             EventType::Wheel { .. } => hide_bubble(&app),
             EventType::KeyPress(k) => {
-                if k == Key::Escape {
+                if k == Key::Escape || k == Key::Return {
                     crate::shot::STOP.store(true, Ordering::Relaxed);
                 }
                 hide_bubble(&app);

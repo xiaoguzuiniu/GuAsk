@@ -249,7 +249,7 @@ listen("selection", async (e) => {
   cfg = await invoke("get_config");
   fillModels();
   // Alt+Q 不带划词：如果上次会话还在，直接恢复，不清空
-  if (!e.payload && (history.length || busy || $("q").value.trim())) {
+  if (!e.payload && (history.length || busy || images.length || $("q").value.trim())) {
     if (mode === "translate") $("askBox").style.display = "flex"; // 翻译结果下也能直接追问
     setTimeout(() => $("q").focus(), 50);
     return;

@@ -68,6 +68,11 @@ async fn shot_done(app: AppHandle, x: f64, y: f64, w: f64, h: f64, long: Option<
 }
 
 #[tauri::command]
+fn shot_finish() {
+    shot::STOP.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[tauri::command]
 fn shot_start(app: AppHandle) {
     shot::start(&app);
 }
@@ -204,7 +209,7 @@ fn main() {
                 let _ = w.hide();
             }
         })
-        .invoke_handler(tauri::generate_handler![get_config, save_config, chat, list_models, test_connection, set_ask_model, get_autostart, set_autostart, bubble_click, save_popup_size, stop_chat, history_save, history_list, history_delete, history_clear, history_open, shot_done, shot_cancel, shot_start])
+        .invoke_handler(tauri::generate_handler![get_config, save_config, chat, list_models, test_connection, set_ask_model, get_autostart, set_autostart, bubble_click, save_popup_size, stop_chat, history_save, history_list, history_delete, history_clear, history_open, shot_done, shot_cancel, shot_start, shot_finish])
         .setup(|app| {
             let dir = app.path().app_config_dir()?;
             app.manage(history::open(&dir)?);

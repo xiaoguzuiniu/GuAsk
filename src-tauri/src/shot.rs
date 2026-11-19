@@ -50,7 +50,7 @@ pub fn done(app: &AppHandle, x: f64, y: f64, w: f64, h: f64, long: bool) -> Resu
     let (sw, sh) = (((w * sf).round() as i32).max(1), ((h * sf).round() as i32).max(1));
     // 等遮罩真正消失再截
     std::thread::sleep(std::time::Duration::from_millis(150));
-    let (img, ih) = if long { long_capture(sx, sy, sw, sh)? } else { (capture(sx, sy, sw, sh)?, sh) };
+    let (img, ih) = if long { long_capture(app, sx, sy, sw, sh)? } else { (capture(sx, sy, sw, sh)?, sh) };
     let png = encode(&img, sw, ih)?;
     let url = format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(png));
     // 弹窗放在选区右侧/下方
@@ -64,42 +64,40 @@ pub fn cancel(app: &AppHandle) {
     }
 }
 
-/// 长截图：鼠标移到选区中央，模拟滚轮向下滚动，逐帧找重叠并拼接；滚不动或按 Esc 结束
-fn long_capture(x: i32, y: i32, w: i32, h: i32) -> Result<(Vec<u8>, i32), String> {
+/// 长截图（手动滚动）：在选区旁显示小工具条，用户自己滚动，持续截取并按重叠拼接；
+/// 点「完成」或按 Enter / Esc 结束
+fn long_capture(app: &AppHandle, x: i32, y: i32, w: i32, h: i32) -> Result<(Vec<u8>, i32), String> {
     use std::sync::atomic::Ordering;
     STOP.store(false, Ordering::Relaxed);
     let row = (w * 4) as usize;
     let mut out = capture(x, y, w, h)?;
     let mut prev = out.clone();
-    let notches = (h / 260).clamp(1, 4) as i64;
-    let mut still = 0;
-    unsafe {
-        let _ = SetCursorPos(x + w / 2, y + h / 2);
+    // 工具条放在选区上方（放不下就放下方）
+    if let Some(win) = app.get_webview_window("shot") {
+        let sf = win.scale_factor().unwrap_or(1.0);
+        let (bw, bh) = ((330.0 * sf) as i32, (44.0 * sf) as i32);
+        let top = unsafe { GetSystemMetrics(SM_YVIRTUALSCREEN) };
+        let by = if y - bh - 8 >= top { y - bh - 8 } else { y + h + 8 };
+        let _ = win.set_size(PhysicalSize::new(bw as u32, bh as u32));
+        let _ = win.set_position(PhysicalPosition::new(x + (w - bw) / 2, by));
+        let _ = win.emit_to("shot", "shot-bar", h);
+        let _ = win.show();
     }
-    for _ in 0..60 {
-        if STOP.load(Ordering::Relaxed) || out.len() / row > 20000 {
-            break;
-        }
-        for _ in 0..notches {
-            let _ = rdev::simulate(&rdev::EventType::Wheel { delta_x: 0, delta_y: -1 });
-            std::thread::sleep(std::time::Duration::from_millis(20));
-        }
-        std::thread::sleep(std::time::Duration::from_millis(380));
+    let t0 = std::time::Instant::now();
+    while !STOP.load(Ordering::Relaxed) && out.len() / row < 30000 && t0.elapsed().as_secs() < 300 {
+        std::thread::sleep(std::time::Duration::from_millis(120));
         let cur = capture(x, y, w, h)?;
-        match find_shift(&prev, &cur, w as usize, h as usize) {
-            Some(0) => {
-                still += 1;
-                if still >= 2 {
-                    break; // 到底了
-                }
-            }
-            Some(d) => {
-                still = 0;
+        if let Some(d) = find_shift(&prev, &cur, w as usize, h as usize) {
+            if d > 0 {
                 out.extend_from_slice(&cur[(h as usize - d) * row..]);
                 prev = cur;
+                let _ = app.emit_to("shot", "shot-progress", out.len() / row);
             }
-            None => break, // 内容变化无法对齐（非滚动区域），停止
         }
+        // 对不上（滚动动画中途等）就跳过这一帧，等画面稳定
+    }
+    if let Some(win) = app.get_webview_window("shot") {
+        let _ = win.hide();
     }
     let total = (out.len() / row) as i32;
     Ok((out, total))
