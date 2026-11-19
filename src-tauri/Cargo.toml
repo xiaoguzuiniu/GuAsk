@@ -21,6 +21,8 @@ tauri-plugin-global-shortcut = "2"
 rusqlite = { version = "0.32", features = ["bundled"] }
 png = "0.17"
 base64 = "0.22"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 
 [profile.release]
 opt-level = "s"

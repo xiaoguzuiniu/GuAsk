@@ -73,9 +73,20 @@
       }
     ]
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE4RDY2QjYzQ0M5NzVGODgKUldTSVg1Zk1ZMnZXR0VmRzBoWXVTQ2JWWWZMVGVxZ2FuREJ6NTB3Qkx1cWNSMXJYZDJ1UUp3U0EK",
+      "endpoints": ["https://github.com/__REPO__/releases/latest/download/latest.json"],
+      "windows": { "installMode": "passive" }
+    }
+  },
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "createUpdaterArtifacts": true,
+    "publisher": "Gu",
+    "shortDescription": "划词翻译 / 提问 / 截图提问",
+    "windows": { "nsis": { "languages": ["SimpChinese"], "installMode": "currentUser" } },
     "icon": ["icons/icon.ico", "icons/icon.png"]
   }
 }

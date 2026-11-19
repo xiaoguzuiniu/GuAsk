@@ -3,6 +3,8 @@
   "windows": ["popup", "settings", "bubble", "shot"],
   "permissions": [
     "core:default",
+    "updater:default",
+    "process:allow-restart",
     "core:window:allow-hide",
     "core:window:allow-show",
     "core:window:allow-set-focus",

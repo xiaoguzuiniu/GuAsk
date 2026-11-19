@@ -116,6 +116,10 @@ mark { background: #fef08a; color: inherit; border-radius: 2px; }
 .md .sub { color: #64748b; }
 .hl-k { color: #cf222e; } .hl-s { color: #0a3069; } .hl-n { color: #0550ae; } .hl-c { color: #6e7781; font-style: italic; } .hl-f { color: #8250df; } .hl-t { color: #953800; }
 .hint { color: #a1a1aa; font-size: 12px; margin-top: 4px; }
+.about { display: flex; align-items: center; gap: 12px; font-size: 13.5px; }
+.about b { font-weight: 600; }
+.upst { flex: 1; color: #71717a; font-size: 12.5px; }
+.upst.new { color: #2563eb; font-weight: 500; }
 </style>
 </head>
 <body>
@@ -187,6 +191,11 @@ mark { background: #fef08a; color: inherit; border-radius: 2px; }
     <h2>程序员模式</h2>
     <label class="switch"><span>自动识别代码 / 报错 / 日志，切换到「代码」解释模式</span><input type="checkbox" id="code_detect"><i></i></label>
     <label class="field"><span>代码解释提示词</span><textarea id="code_prompt" style="height:110px"></textarea></label>
+  </div>
+
+  <div class="card">
+    <h2>关于</h2>
+    <div class="about"><span>GuAsk <b id="ver"></b></span><span id="upst" class="upst"></span><button id="upbtn">检查更新</button></div>
   </div>
 
 </div>
@@ -396,6 +405,36 @@ $("hlist").onclick = async (e) => {
   }
   item.classList.toggle("open");
 };
+
+// ---- 自动更新 ----
+const upd = window.__TAURI__.updater, proc = window.__TAURI__.process;
+window.__TAURI__.app.getVersion().then((v) => ($("ver").textContent = "v" + v));
+let pending = null;
+async function checkUpdate(manual) {
+  const st = $("upst"), b = $("upbtn");
+  if (pending) {
+    b.disabled = true;
+    st.textContent = "正在下载…";
+    let total = 0, got = 0;
+    try {
+      await pending.downloadAndInstall((e) => {
+        if (e.event === "Started") total = e.data.contentLength || 0;
+        if (e.event === "Progress") { got += e.data.chunkLength; if (total) st.textContent = `正在下载 ${Math.round((got / total) * 100)}%`; }
+        if (e.event === "Finished") st.textContent = "安装中，即将重启…";
+      });
+      await proc.relaunch();
+    } catch (e) { st.textContent = "更新失败：" + e; b.disabled = false; }
+    return;
+  }
+  if (manual) st.textContent = "检查中…";
+  try {
+    const u = await upd.check();
+    if (u) { pending = u; st.textContent = `发现新版本 v${u.version}`; st.className = "upst new"; b.textContent = "立即更新"; }
+    else if (manual) st.textContent = "已是最新版本 ✓";
+  } catch (e) { if (manual) st.textContent = "检查失败：" + e; }
+}
+$("upbtn").onclick = () => checkUpdate(true);
+checkUpdate(false);
 </script>
 </body>
 </html>
