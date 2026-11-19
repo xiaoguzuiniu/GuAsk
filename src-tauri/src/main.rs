@@ -189,11 +189,10 @@ fn main() {
             };
             let autostart = CheckMenuItem::with_id(app, "autostart", "开机自启", true, auto_on, None::<&str>)?;
             let ask = MenuItem::with_id(app, "ask", "快速提问", true, None::<&str>)?;
-            let settings = MenuItem::with_id(app, "settings", "设置", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
             let sep = PredefinedMenuItem::separator(app)?;
             let sep2 = PredefinedMenuItem::separator(app)?;
-            let menu = Menu::with_items(app, &[&enable, &autostart, &sep, &ask, &settings, &sep2, &quit])?;
+            let menu = Menu::with_items(app, &[&enable, &autostart, &sep, &ask, &sep2, &quit])?;
             let enable_c = enable.clone();
             let auto_c = autostart.clone();
             TrayIconBuilder::new()
