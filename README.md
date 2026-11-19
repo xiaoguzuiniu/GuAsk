@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="src-tauri/icons/128x128@2x.png" width="112" alt="GuAsk logo" />
+
 # GuAsk
 
 **轻量的 Windows 划词翻译 / AI 提问 / 截图提问工具**
