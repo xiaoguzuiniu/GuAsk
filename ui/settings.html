@@ -53,6 +53,9 @@ button.primary.done { background: #16a34a; border-color: #16a34a; }
 .picker label { display: flex; align-items: center; gap: 8px; padding: 4px 10px; cursor: pointer; font-size: 12.5px; }
 .picker label:hover { background: #f4f4f5; }
 .picker input { width: auto; }
+.tpl { border: 1px solid #ebebee; border-radius: 10px; padding: 8px; margin-top: 8px; }
+.tpl textarea { margin-top: 6px; height: 64px; }
+.tpl .del { color: #dc2626; }
 .hint { color: #a1a1aa; font-size: 12px; margin-top: 4px; }
 </style>
 </head>
@@ -101,6 +104,19 @@ button.primary.done { background: #16a34a; border-color: #16a34a; }
     <label class="switch"><span>划词后自动翻译 / 提问（英文自动翻译，中文进入提问）</span><input type="checkbox" id="auto_translate"><i></i></label>
     <label class="field"><span>翻译提示词<small>{lang} 会替换为目标语言</small></span><textarea id="translate_prompt"></textarea></label>
     <label class="field"><span>提问提示词</span><textarea id="ask_prompt"></textarea></label>
+    <label class="field"><span>单词卡片提示词<small>选中单个英文单词时使用</small></span><textarea id="word_prompt" style="height:110px"></textarea></label>
+  </div>
+
+  <div class="card">
+    <h2>程序员模式</h2>
+    <label class="switch"><span>自动识别代码 / 报错 / 日志，切换到「代码」解释模式</span><input type="checkbox" id="code_detect"><i></i></label>
+    <label class="field"><span>代码解释提示词</span><textarea id="code_prompt" style="height:110px"></textarea></label>
+  </div>
+
+  <div class="card">
+    <h2>提示词模板<small style="font-weight:400;color:#a1a1aa;margin-left:6px">弹窗顶部「模板」下拉里切换，{lang} 会替换为目标语言</small></h2>
+    <div id="tpls"></div>
+    <button id="addTpl" type="button" style="margin-top:8px">＋ 添加模板</button>
   </div>
 </div>
 
@@ -108,16 +124,25 @@ button.primary.done { background: #16a34a; border-color: #16a34a; }
 
 <script>
 const { invoke } = window.__TAURI__.core;
-const keys = ["base_url", "api_key", "model", "trigger", "hotkey", "target_lang", "translate_prompt", "ask_prompt"];
+const keys = ["base_url", "api_key", "model", "trigger", "hotkey", "target_lang", "translate_prompt", "ask_prompt", "word_prompt", "code_prompt"];
 const $ = (id) => document.getElementById(id);
 const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 let cfg = {};
 let askModels = [];
 let allModels = [];
+let tpls = [];
+setTimeout(() => ($("addTpl").onclick = () => { tpls.push({ name: "", prompt: "" }); renderTpls(); $("tpls").lastElementChild.querySelector("input").focus(); }));
+function renderTpls() {
+  $("tpls").innerHTML = tpls.map((x, i) => `<div class="tpl"><div class="row"><input data-i="${i}" data-k="name" value="${esc(x.name)}" placeholder="名称，如：润色"><button type="button" class="del" data-del="${i}" title="删除">删除</button></div><textarea data-i="${i}" data-k="prompt" placeholder="系统提示词">${esc(x.prompt)}</textarea></div>`).join("")
+    || `<div class="hint">还没有模板</div>`;
+}
+document.addEventListener("input", (e) => { const d = e.target.dataset; if (d.k && d.i !== undefined) tpls[+d.i][d.k] = e.target.value; });
+document.addEventListener("click", (e) => { const i = e.target.dataset && e.target.dataset.del; if (i !== undefined) { tpls.splice(+i, 1); renderTpls(); } });
 
 const form = () => {
-  const c = { ...cfg, auto_translate: $("auto_translate").checked, ask_models: askModels, translate_model: "" };
+  const c = { ...cfg, auto_translate: $("auto_translate").checked, code_detect: $("code_detect").checked, ask_models: askModels, translate_model: "",
+    templates: tpls.map((x) => ({ name: x.name.trim(), prompt: x.prompt.trim() })).filter((x) => x.name && x.prompt) };
   keys.forEach((k) => (c[k] = $(k).value.trim()));
   return c;
 };
@@ -155,6 +180,9 @@ invoke("get_config").then((c) => {
   fillModelSel();
   if (c.api_key) loadModels(true);
   $("auto_translate").checked = c.auto_translate;
+  $("code_detect").checked = c.code_detect;
+  tpls = (c.templates || []).map((x) => ({ ...x }));
+  renderTpls();
   askModels = c.ask_models || [];
   renderChips();
 });

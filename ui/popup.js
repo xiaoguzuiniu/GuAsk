@@ -18,8 +18,33 @@ function isChinese(s) {
   return cjk / letters.length > 0.3;
 }
 
+// 单个英文单词（允许连字符/撇号，如 well-known、don't）
+const isWord = (s) => /^[A-Za-z][A-Za-z'\-]{0,30}$/.test(s.trim());
+
+// 粗略判断代码 / 报错 / 日志
+function isCode(s) {
+  const t = s.trim();
+  if (t.length < 8) return false;
+  const lines = t.split(/\r?\n/);
+  let score = 0;
+  if (/(Error|Exception|Traceback|panicked at|FATAL|ERROR|WARN|undefined is not|Segmentation fault|errno|E\d{4}|at [\w.$<>]+\(.*:\d+)/.test(t)) score += 3;
+  if (/^\s*(at |File "|\s+at )/m.test(t)) score += 2;
+  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/m.test(t)) score += 2; // 日志时间戳
+  if (/[{};]\s*$/m.test(t)) score += 1;
+  if (/\b(function|def|class|import|return|const|let|var|fn|pub|public|private|#include|SELECT|FROM)\b/.test(t)) score += 2;
+  if (/(=>|->|::|==|!=|&&|\|\||\+\+|\w+\([^)]*\))/.test(t)) score += 1;
+  if (lines.length > 1 && lines.filter((l) => /^\s{2,}|\t/.test(l)).length >= lines.length / 3) score += 1;
+  if (/[\u3400-\u9fff]/.test(t) && score < 3) score -= 2;
+  return score >= 3;
+}
+
+let tplIdx = -1; // mode === "tpl" 时使用的模板下标
 function sysPrompt() {
-  const p = mode === "translate" ? cfg.translate_prompt : cfg.ask_prompt;
+  let p;
+  if (mode === "translate") p = isWord(text) && cfg.word_prompt ? cfg.word_prompt : cfg.translate_prompt;
+  else if (mode === "code") p = cfg.code_prompt;
+  else if (mode === "tpl") p = cfg.templates[tplIdx].prompt;
+  else p = cfg.ask_prompt;
   return p.replaceAll("{lang}", cfg.target_lang);
 }
 
@@ -88,7 +113,7 @@ async function run(userContent) {
   try {
     await invoke("chat", {
       messages: [{ role: "system", content: sysPrompt() }, ...history],
-      model: mode === "ask" ? curModel() || null : null,
+      model: mode === "translate" ? null : curModel() || null,
       onEvent: ch,
     });
     if (stopped && !acc) { el.className = "msg hint"; el.textContent = "已停止"; }
@@ -106,15 +131,28 @@ async function run(userContent) {
 }
 let stopFn = null;
 
-function setMode(m) {
+function setMode(m, ti) {
+  if (busy && stopFn) stopFn();
   mode = m;
+  if (m === "tpl") tplIdx = ti;
   $("mTrans").classList.toggle("on", m === "translate");
   $("mAsk").classList.toggle("on", m === "ask");
-  $("askBox").style.display = m === "ask" ? "flex" : "none";
+  $("mCode").classList.toggle("on", m === "code");
+  $("tBtn").classList.toggle("on", m === "tpl");
+  $("tName").textContent = m === "tpl" ? cfg.templates[ti].name : "模板";
+  $("askBox").style.display = m === "translate" ? "none" : "flex";
+  const word = m === "translate" && isWord(text);
+  $("word").style.display = word ? "" : "none";
+  $("src").style.display = text && !word ? "" : "none";
+  if (word) $("wText").textContent = text.trim();
   $("out").innerHTML = "";
   history = [];
-  if (m === "translate") {
-    if (text) run(text); else addMsg("hint", "没有选中的文本，切换到“提问”直接问吧");
+  if (m === "translate" || m === "code" || m === "tpl") {
+    if (text) run(text);
+    else addMsg("hint", m === "translate" ? "没有选中的文本，切换到“提问”直接问吧" : "没有选中的内容，可以直接在下方输入");
+    $("q").value = "";
+    autoGrow();
+    if (m !== "translate") setTimeout(() => $("q").focus(), 50);
   } else {
     addMsg("hint", text ? "针对选中的内容，你想问什么？" : "有什么想问的？");
     $("q").value = "";
@@ -153,12 +191,55 @@ listen("selection", async (e) => {
   if (busy && stopFn) stopFn();
   text = e.payload;
   $("src").textContent = text;
-  $("src").style.display = text ? "" : "none";
-  setMode(!text || isChinese(text) ? "ask" : "translate");
+  fillTemplates();
+  if (!text) setMode("ask");
+  else if (cfg.code_detect && isCode(text)) setMode("code");
+  else setMode(isChinese(text) ? "ask" : "translate");
 });
 
 $("mTrans").onclick = () => setMode("translate");
 $("mAsk").onclick = () => setMode("ask");
+$("mCode").onclick = () => setMode("code");
+
+function fillTemplates() {
+  const list = cfg.templates || [];
+  $("tpick").style.display = list.length ? "" : "none";
+  $("tMenu").innerHTML = "";
+  list.forEach((tp, i) => {
+    const d = document.createElement("div");
+    d.textContent = tp.name;
+    if (mode === "tpl" && i === tplIdx) d.className = "cur";
+    d.onclick = () => { $("tpick").classList.remove("open"); setMode("tpl", i); };
+    $("tMenu").appendChild(d);
+  });
+}
+$("tBtn").onclick = (e) => { e.stopPropagation(); fillTemplates(); $("tpick").classList.toggle("open"); };
+document.addEventListener("click", () => $("tpick").classList.remove("open"));
+
+// 朗读：Windows 自带语音（SAPI），离线可用
+function speak() {
+  const synth = window.speechSynthesis;
+  synth.cancel();
+  const u = new SpeechSynthesisUtterance(text.trim());
+  const vs = synth.getVoices();
+  const v = vs.find((x) => /en-US/i.test(x.lang)) || vs.find((x) => /^en/i.test(x.lang));
+  if (v) u.voice = v;
+  u.lang = v ? v.lang : "en-US";
+  u.rate = 0.9;
+  $("speak").classList.add("on");
+  u.onend = u.onerror = () => $("speak").classList.remove("on");
+  synth.speak(u);
+}
+$("speak").onclick = speak;
+
+// 代码块复制
+$("out").addEventListener("click", async (e) => {
+  const b = e.target.closest(".cpy");
+  if (!b) return;
+  await navigator.clipboard.writeText(b.closest(".cb").querySelector("code").innerText);
+  b.textContent = "已复制"; b.classList.add("ok");
+  setTimeout(() => { b.textContent = "复制"; b.classList.remove("ok"); }, 1200);
+});
 $("close").onclick = () => win.hide();
 $("pin").onclick = () => { pinned = !pinned; $("pin").classList.toggle("on", pinned); };
 
