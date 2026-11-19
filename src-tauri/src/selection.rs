@@ -246,8 +246,21 @@ fn uia_selection() -> Option<String> {
 /// - 不支持的程序：鼠标是 I 形文本光标才认为在文字上划词。
 fn has_selection() -> bool {
     match uia_selection_state() {
-        Some(has) => has,
+        Some(true) => true,
+        // Electron/Chromium 程序（VS Code、Cursor、钉钉等）的编辑器用隐藏输入框承载焦点，
+        // UIA 读到的选区常常是空的，不可信：改用鼠标光标形状判断
+        Some(false) if fg_is_chromium() => cursor_is_ibeam(),
+        Some(false) => false,
         None => cursor_is_ibeam(),
+    }
+}
+
+fn fg_is_chromium() -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetForegroundWindow};
+    unsafe {
+        let mut buf = [0u16; 128];
+        let n = GetClassNameW(GetForegroundWindow(), &mut buf) as usize;
+        String::from_utf16_lossy(&buf[..n]).starts_with("Chrome_WidgetWin")
     }
 }
 
