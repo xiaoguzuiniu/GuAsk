@@ -50,6 +50,19 @@
         "resizable": false
       },
       {
+        "label": "frame",
+        "url": "frame.html",
+        "title": "GuAsk 选区",
+        "visible": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "focus": false
+      },
+      {
         "label": "settings",
         "url": "settings.html",
         "title": "GuAsk 设置",

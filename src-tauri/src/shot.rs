@@ -83,6 +83,14 @@ fn long_capture(app: &AppHandle, x: i32, y: i32, w: i32, h: i32) -> Result<(Vec<
         let _ = win.emit_to("shot", "shot-bar", h);
         let _ = win.show();
     }
+    // 选区边框：画在选区外侧 3px，鼠标穿透，不会被截进去
+    let frame = app.get_webview_window("frame");
+    if let Some(f) = &frame {
+        let _ = f.set_ignore_cursor_events(true);
+        let _ = f.set_size(PhysicalSize::new((w + 6) as u32, (h + 6) as u32));
+        let _ = f.set_position(PhysicalPosition::new(x - 3, y - 3));
+        let _ = f.show();
+    }
     let t0 = std::time::Instant::now();
     while !STOP.load(Ordering::Relaxed) && out.len() / row < 30000 && t0.elapsed().as_secs() < 300 {
         std::thread::sleep(std::time::Duration::from_millis(120));
@@ -98,6 +106,9 @@ fn long_capture(app: &AppHandle, x: i32, y: i32, w: i32, h: i32) -> Result<(Vec<
     }
     if let Some(win) = app.get_webview_window("shot") {
         let _ = win.hide();
+    }
+    if let Some(f) = &frame {
+        let _ = f.hide();
     }
     let total = (out.len() / row) as i32;
     Ok((out, total))
