@@ -174,7 +174,7 @@ function setMode(m, ti) {
     // 不自动翻译：按空格或点击开始
     if (text) {
       const h = addMsg("hint start", "");
-      h.innerHTML = `<div class="startBtn"><svg width="18" height="18" viewBox="0 0 24 24"><path d="M4 5h9M8.5 3v2M6 5c.5 3 3 6 6.5 7.5M11 5c-.8 3.5-3.4 6.6-7 8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M13 21l4-9 4 9M14.5 18h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>开始翻译</div><div class="startTip">或按 <kbd>Space</kbd> 空格键</div>`;
+      h.innerHTML = `按 <kbd>空格</kbd> 开始翻译`;
       h.onclick = startTranslate;
     } else addMsg("hint", "没有选中的文本，切换到“提问”直接问吧");
   } else if (m === "code" || m === "tpl") {
