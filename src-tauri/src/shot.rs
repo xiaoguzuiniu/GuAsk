@@ -21,7 +21,19 @@ pub fn start(app: &AppHandle) {
     };
     let _ = w.set_position(PhysicalPosition::new(x, y));
     let _ = w.set_size(PhysicalSize::new(cw as u32, ch as u32));
-    let _ = w.emit_to("shot", "shot-start", ());
+    // 提示条放在鼠标所在屏幕的顶部中央（CSS 像素，相对遮罩窗口）
+    let (cx, cy) = crate::selection::cursor_pos();
+    let sf = w.scale_factor().unwrap_or(1.0);
+    let mut tip = ((cw as f64 / 2.0) / sf, 24.0);
+    if let Ok(ms) = w.available_monitors() {
+        for m in ms {
+            let (p, s) = (m.position(), m.size());
+            if cx >= p.x as f64 && cx < (p.x + s.width as i32) as f64 && cy >= p.y as f64 && cy < (p.y + s.height as i32) as f64 {
+                tip = (((p.x - x) as f64 + s.width as f64 / 2.0) / sf, ((p.y - y) as f64) / sf + 24.0);
+            }
+        }
+    }
+    let _ = w.emit_to("shot", "shot-start", tip);
     let _ = w.show();
     let _ = w.set_focus();
 }

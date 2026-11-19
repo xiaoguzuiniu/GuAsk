@@ -26,7 +26,7 @@ function setLong(v) { long = v; document.getElementById("mN").classList.toggle("
 document.getElementById("mN").onmousedown = (e) => { e.stopPropagation(); setLong(false); };
 document.getElementById("mL").onmousedown = (e) => { e.stopPropagation(); setLong(true); };
 function reset() { s = null; box.style.display = "none"; document.body.classList.remove("sel"); tip.style.display = ""; }
-listen("shot-start", reset);
+listen("shot-start", (e) => { reset(); const [l, t] = e.payload || []; if (l != null) { tip.style.left = l + "px"; tip.style.top = t + "px"; } });
 window.addEventListener("mousedown", (e) => {
   if (e.target.closest && e.target.closest("#tip")) return;
   if (e.button === 2) { reset(); invoke("shot_cancel"); return; }
