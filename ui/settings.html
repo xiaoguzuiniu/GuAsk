@@ -56,11 +56,62 @@ button.primary.done { background: #16a34a; border-color: #16a34a; }
 .tpl { border: 1px solid #ebebee; border-radius: 10px; padding: 8px; margin-top: 8px; }
 .tpl textarea { margin-top: 6px; height: 64px; }
 .tpl .del { color: #dc2626; }
+.tabs { position: sticky; top: 0; z-index: 4; display: flex; gap: 4px; justify-content: center; padding: 10px 0 6px; background: #f5f6f8; }
+.tabs button { padding: 5px 18px; border-radius: 999px; font-size: 13px; color: #52525b; background: transparent; border: none; cursor: pointer; }
+.tabs button.on { background: #fff; color: #2563eb; font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.hbar { display: flex; gap: 8px; }
+.hbar input { flex: 1; }
+.hbar select { width: 96px; flex: none; }
+.hmeta { display: flex; justify-content: space-between; align-items: center; margin: 10px 2px 6px; color: #a1a1aa; font-size: 12px; }
+.hmeta > span:last-child { display: flex; align-items: center; gap: 10px; }
+.switch.mini { margin: 0; gap: 6px; font-weight: 400; color: #52525b; }
+.switch.mini i { width: 30px; height: 17px; } .switch.mini i::after { width: 13px; height: 13px; }
+.switch.mini input:checked + i::after { left: 15px; }
+.danger { color: #dc2626 !important; }
+.hitem { background: #fff; border: 1px solid #ebebee; border-radius: 12px; margin-bottom: 8px; overflow: hidden; }
+.hhead { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; cursor: pointer; }
+.hhead:hover { background: #fafafa; }
+.tag { flex: none; font-size: 11px; padding: 1px 7px; border-radius: 6px; background: #eff6ff; color: #1d4ed8; margin-top: 2px; }
+.tag.t-代码 { background: #f5f3ff; color: #6d28d9; } .tag.t-单词 { background: #ecfdf5; color: #047857; } .tag.t-提问 { background: #fff7ed; color: #c2410c; }
+.hsrc { flex: 1; min-width: 0; }
+.hsrc .s { color: #18181b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hsrc .a { color: #71717a; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.htime { flex: none; color: #a1a1aa; font-size: 11.5px; margin-top: 2px; }
+.hbody { display: none; border-top: 1px solid #f0f0f2; padding: 6px 14px 10px; }
+.hitem.open .hbody { display: block; }
+.hitem.open .hsrc .s, .hitem.open .hsrc .a { white-space: normal; }
+.hmsg { margin: 8px 0; }
+.hmsg.u { background: #eff6ff; color: #1e3a8a; border-radius: 8px; padding: 6px 10px; white-space: pre-wrap; word-break: break-word; }
+.hops { display: flex; gap: 6px; justify-content: flex-end; }
+.hops button { font-size: 12px; padding: 2px 8px; }
+.more { display: block; margin: 8px auto; }
+mark { background: #fef08a; color: inherit; border-radius: 2px; }
+.empty { text-align: center; color: #a1a1aa; padding: 40px 0; }
+/* 回答内 markdown */
+.md p { margin: 4px 0 8px; } .md ul, .md ol { margin: 4px 0 8px; padding-left: 20px; }
+.md code { background: #f4f4f5; padding: 1px 5px; border-radius: 4px; font: 12.5px Consolas, monospace; }
+.md .cb { border: 1px solid #ebebee; border-radius: 8px; margin: 6px 0 10px; overflow: hidden; }
+.md .cb-h { display: flex; justify-content: space-between; align-items: center; padding: 2px 6px 2px 10px; background: #f6f8fa; border-bottom: 1px solid #ebebee; font-size: 11.5px; color: #8b949e; }
+.md .cb-h .cpy { font-size: 11.5px; padding: 1px 8px; }
+.md .cb pre { margin: 0; padding: 8px 10px; overflow: auto; background: #fbfbfc; }
+.md pre code { background: none; padding: 0; color: #24292f; }
+.md .sub { color: #64748b; }
+.hl-k { color: #cf222e; } .hl-s { color: #0a3069; } .hl-n { color: #0550ae; } .hl-c { color: #6e7781; font-style: italic; } .hl-f { color: #8250df; } .hl-t { color: #953800; }
 .hint { color: #a1a1aa; font-size: 12px; margin-top: 4px; }
 </style>
 </head>
 <body>
-<div class="page">
+<div class="tabs"><button id="tabSet" class="on">设置</button><button id="tabHis">历史记录</button></div>
+<div class="page" id="pageHis" style="display:none">
+  <div class="hbar">
+    <input id="hq" placeholder="搜索原文或回答…">
+    <select id="hmode"><option value="">全部</option><option>翻译</option><option>单词</option><option>提问</option><option>代码</option></select>
+  </div>
+  <div class="hmeta"><span id="hcount"></span><span><label class="switch mini"><input type="checkbox" id="history_enabled"><i></i><span>记录历史</span></label><button id="hclear" type="button" class="danger">清空</button></span></div>
+  <div id="hlist"></div>
+  <button id="hmore" type="button" class="more" style="display:none">加载更多</button>
+</div>
+<div class="page" id="pageSet">
 
   <div class="card">
     <h2>模型服务</h2>
@@ -122,11 +173,12 @@ button.primary.done { background: #16a34a; border-color: #16a34a; }
 
 <div class="footer"><button class="primary" id="save">保存</button></div><div class="toast" id="toast"></div>
 
+<script src="md.js"></script>
 <script>
 const { invoke } = window.__TAURI__.core;
 const keys = ["base_url", "api_key", "model", "trigger", "hotkey", "target_lang", "translate_prompt", "ask_prompt", "word_prompt", "code_prompt"];
 const $ = (id) => document.getElementById(id);
-const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const escA = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 let cfg = {};
 let askModels = [];
@@ -134,14 +186,14 @@ let allModels = [];
 let tpls = [];
 setTimeout(() => ($("addTpl").onclick = () => { tpls.push({ name: "", prompt: "" }); renderTpls(); $("tpls").lastElementChild.querySelector("input").focus(); }));
 function renderTpls() {
-  $("tpls").innerHTML = tpls.map((x, i) => `<div class="tpl"><div class="row"><input data-i="${i}" data-k="name" value="${esc(x.name)}" placeholder="名称，如：润色"><button type="button" class="del" data-del="${i}" title="删除">删除</button></div><textarea data-i="${i}" data-k="prompt" placeholder="系统提示词">${esc(x.prompt)}</textarea></div>`).join("")
+  $("tpls").innerHTML = tpls.map((x, i) => `<div class="tpl"><div class="row"><input data-i="${i}" data-k="name" value="${escA(x.name)}" placeholder="名称，如：润色"><button type="button" class="del" data-del="${i}" title="删除">删除</button></div><textarea data-i="${i}" data-k="prompt" placeholder="系统提示词">${escA(x.prompt)}</textarea></div>`).join("")
     || `<div class="hint">还没有模板</div>`;
 }
 document.addEventListener("input", (e) => { const d = e.target.dataset; if (d.k && d.i !== undefined) tpls[+d.i][d.k] = e.target.value; });
 document.addEventListener("click", (e) => { const i = e.target.dataset && e.target.dataset.del; if (i !== undefined) { tpls.splice(+i, 1); renderTpls(); } });
 
 const form = () => {
-  const c = { ...cfg, auto_translate: $("auto_translate").checked, code_detect: $("code_detect").checked, ask_models: askModels, translate_model: "",
+  const c = { ...cfg, auto_translate: $("auto_translate").checked, code_detect: $("code_detect").checked, history_enabled: $("history_enabled").checked, ask_models: askModels, translate_model: "",
     templates: tpls.map((x) => ({ name: x.name.trim(), prompt: x.prompt.trim() })).filter((x) => x.name && x.prompt) };
   keys.forEach((k) => (c[k] = $(k).value.trim()));
   return c;
@@ -149,13 +201,13 @@ const form = () => {
 const status = (cls, msg) => { $("status").className = "status " + cls; $("status").textContent = msg; };
 
 function renderChips() {
-  $("chips").innerHTML = askModels.map((m, i) => `<span class="chip">${esc(m)}<b data-i="${i}" title="移除">×</b></span>`).join("");
+  $("chips").innerHTML = askModels.map((m, i) => `<span class="chip">${escA(m)}<b data-i="${i}" title="移除">×</b></span>`).join("");
 }
 function renderPicker() {
   const q = $("filter").value.trim().toLowerCase();
   const list = allModels.filter((m) => m.toLowerCase().includes(q));
   $("picker").style.display = allModels.length ? "block" : "none";
-  $("picker").innerHTML = list.map((m) => `<label><input type="checkbox" value="${esc(m)}" ${askModels.includes(m) ? "checked" : ""}>${esc(m)}</label>`).join("")
+  $("picker").innerHTML = list.map((m) => `<label><input type="checkbox" value="${escA(m)}" ${askModels.includes(m) ? "checked" : ""}>${escA(m)}</label>`).join("")
     || `<div class="hint" style="padding:6px 10px">没有匹配的模型</div>`;
 }
 $("chips").onclick = (e) => { const i = e.target.dataset.i; if (i !== undefined) { askModels.splice(+i, 1); renderChips(); renderPicker(); } };
@@ -181,6 +233,7 @@ invoke("get_config").then((c) => {
   if (c.api_key) loadModels(true);
   $("auto_translate").checked = c.auto_translate;
   $("code_detect").checked = c.code_detect;
+  $("history_enabled").checked = c.history_enabled;
   tpls = (c.templates || []).map((x) => ({ ...x }));
   renderTpls();
   askModels = c.ask_models || [];
@@ -193,7 +246,7 @@ function fillModelSel() {
   const cur = $("model").value;
   const list = allModels.includes(cur) || !cur ? allModels : [cur, ...allModels];
   const sel = $("modelSel");
-  sel.innerHTML = list.length ? "" : `<option value="${esc(cur)}">${esc(cur || "请先点击“获取模型”")}</option>`;
+  sel.innerHTML = list.length ? "" : `<option value="${escA(cur)}">${escA(cur || "请先点击“获取模型”")}</option>`;
   list.forEach((m) => sel.add(new Option(m, m)));
   sel.add(new Option("✎ 手动输入…", "__custom__"));
   sel.value = cur;
@@ -252,6 +305,83 @@ $("save").onclick = async () => {
   } catch (e) { toast("保存失败：" + e, true); }
 };
 document.addEventListener("keydown", (e) => { if (e.ctrlKey && e.key === "s") { e.preventDefault(); $("save").click(); } });
+
+// ===== 历史记录 =====
+const H = { q: "", mode: "", offset: 0, items: [], total: 0 };
+const PAGE = 30;
+function showTab(his) {
+  $("tabSet").classList.toggle("on", !his); $("tabHis").classList.toggle("on", his);
+  $("pageSet").style.display = his ? "none" : ""; $("pageHis").style.display = his ? "" : "none";
+  document.querySelector(".footer").style.display = his ? "none" : "";
+  if (his) loadHis(true);
+}
+$("tabSet").onclick = () => showTab(false);
+$("tabHis").onclick = () => showTab(true);
+const fmtTime = (ms) => {
+  const d = new Date(ms), n = new Date(), p = (x) => String(x).padStart(2, "0");
+  const hm = `${p(d.getHours())}:${p(d.getMinutes())}`;
+  if (d.toDateString() === n.toDateString()) return "今天 " + hm;
+  const y = new Date(n); y.setDate(n.getDate() - 1);
+  if (d.toDateString() === y.toDateString()) return "昨天 " + hm;
+  return (d.getFullYear() === n.getFullYear() ? "" : d.getFullYear() + "-") + `${p(d.getMonth() + 1)}-${p(d.getDate())} ${hm}`;
+};
+const mark = (s) => {
+  const e = escA(s);
+  if (!H.q) return e;
+  const k = escA(H.q).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return e.replace(new RegExp(k, "gi"), (m) => `<mark>${m}</mark>`);
+};
+async function loadHis(reset) {
+  if (reset) { H.offset = 0; H.items = []; }
+  try {
+    const r = await invoke("history_list", { q: H.q, mode: H.mode, offset: H.offset, limit: PAGE });
+    H.items.push(...r.items); H.total = r.total; H.offset += r.items.length;
+  } catch (e) { $("hlist").innerHTML = `<div class="empty">${escA(String(e))}</div>`; return; }
+  $("hcount").textContent = `共 ${H.total} 条`;
+  $("hmore").style.display = H.items.length < H.total ? "" : "none";
+  $("hlist").innerHTML = H.items.map((it, i) => {
+    let msgs = []; try { msgs = JSON.parse(it.messages); } catch {}
+    const ans = (msgs.find((m) => m.role === "assistant") || {}).content || "";
+    return `<div class="hitem" data-i="${i}"><div class="hhead"><span class="tag t-${escA(it.mode)}">${escA(it.mode)}</span>
+      <div class="hsrc"><div class="s">${mark(it.source)}</div><div class="a">${mark(ans.replace(/[#*`>]/g, "").slice(0, 200))}</div></div>
+      <span class="htime">${fmtTime(it.ts)}</span></div><div class="hbody"></div></div>`;
+  }).join("") || `<div class="empty">${H.q || H.mode ? "没有匹配的记录" : "还没有历史记录，划词翻译/提问后会自动保存"}</div>`;
+}
+let hqTimer;
+$("hq").oninput = () => { clearTimeout(hqTimer); hqTimer = setTimeout(() => { H.q = $("hq").value.trim(); loadHis(true); }, 250); };
+$("hmode").onchange = () => { H.mode = $("hmode").value; loadHis(true); };
+$("hmore").onclick = () => loadHis(false);
+$("hclear").onclick = async () => {
+  const b = $("hclear");
+  if (b.dataset.sure !== "1") { b.dataset.sure = "1"; b.textContent = "确定清空？"; setTimeout(() => { b.dataset.sure = ""; b.textContent = "清空"; }, 3000); return; }
+  await invoke("history_clear"); b.dataset.sure = ""; b.textContent = "清空"; loadHis(true);
+};
+$("history_enabled").onchange = async () => {
+  const c = { ...cfg, history_enabled: $("history_enabled").checked };
+  await invoke("save_config", { cfg: c }); cfg = c;
+};
+$("hlist").onclick = async (e) => {
+  const item = e.target.closest(".hitem"); if (!item) return;
+  const it = H.items[+item.dataset.i];
+  const cpy = e.target.closest(".cpy");
+  if (cpy) { await navigator.clipboard.writeText(cpy.closest(".cb").querySelector("code").innerText); cpy.textContent = "已复制"; return; }
+  if (e.target.closest(".hdel")) { await invoke("history_delete", { id: it.id }); H.items.splice(+item.dataset.i, 1); H.total--; item.remove(); $("hcount").textContent = `共 ${H.total} 条`; return; }
+  if (e.target.closest(".hcopy")) {
+    let msgs = []; try { msgs = JSON.parse(it.messages); } catch {}
+    const a = msgs.filter((m) => m.role === "assistant").pop();
+    await navigator.clipboard.writeText(a ? a.content : ""); e.target.closest(".hcopy").textContent = "已复制"; return;
+  }
+  if (!e.target.closest(".hhead")) return;
+  const body = item.querySelector(".hbody");
+  if (!item.classList.contains("open") && !body.innerHTML) {
+    let msgs = []; try { msgs = JSON.parse(it.messages); } catch {}
+    body.innerHTML = msgs.map((m, k) => m.role === "user"
+      ? (k === 0 ? "" : `<div class="hmsg u">${escA(m.content)}</div>`)
+      : `<div class="hmsg md">${renderMd(m.content)}</div>`).join("")
+      + `<div class="hops"><span style="flex:1;color:#a1a1aa;font-size:11.5px;align-self:center">${escA(it.model || "")}</span><button class="hcopy" type="button">复制回答</button><button class="hdel danger" type="button">删除</button></div>`;
+  }
+  item.classList.toggle("open");
+};
 </script>
 </body>
 </html>

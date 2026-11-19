@@ -37,6 +37,8 @@ pub struct Config {
     pub code_detect: bool,
     /// 自定义提示词模板（弹窗顶部切换）
     pub templates: Vec<Template>,
+    /// 保存历史记录
+    pub history_enabled: bool,
     /// 唤出方式：ctrl2 / alt2 / shift2 / auto
     pub trigger: String,
     /// 全局快捷键：直接打开提问（空则禁用）
@@ -62,6 +64,7 @@ impl Default for Config {
             word_prompt: "你是英汉词典。用户给出一个英文单词，请严格按以下 Markdown 格式输出，不要任何多余开场白：\n英 /音标/  美 /音标/\n\n**词性.** {lang}释义1；释义2\n**词性.** {lang}释义\n\n### 例句\n1. 英文例句（把该单词加粗）\n   {lang}翻译\n2. 英文例句\n   {lang}翻译\n\n### 常见搭配\n- 搭配 — 释义".into(),
             code_prompt: "你是资深软件工程师。用户选中了一段代码、报错或日志。请用{lang}：\n- 如果是报错/异常/堆栈：先一句话说明错误含义，再列出最可能的原因和具体的修复方法；\n- 如果是代码：简要说明它做了什么，指出关键逻辑和潜在问题；\n- 如果是日志：解释关键信息并指出异常点。\n保持简洁，必要时给出代码示例。".into(),
             code_detect: true,
+            history_enabled: true,
             templates: vec![
                 tpl("润色", "你是写作编辑。请润色用户给的文本，使其更通顺、专业、地道，保持原语言和原意，只输出润色后的结果。"),
                 tpl("总结", "请用{lang}总结用户给的内容，先一句话概括，再用 3-5 个要点列出关键信息。"),

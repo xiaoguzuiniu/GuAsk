@@ -121,6 +121,7 @@ async function run(userContent) {
     history.push({ role: "assistant", content: acc });
     const final = acc;
     addActions(el, () => final);
+    if (acc) saveHistory();
   } catch (e) {
     el.className = "msg err";
     el.textContent = String(e);
@@ -130,6 +131,27 @@ async function run(userContent) {
   setBusy(false);
 }
 let stopFn = null;
+
+// 历史记录：同一次划词的追问合并为一条
+let histId = 0;
+function modeLabel() {
+  if (mode === "translate") return isWord(text) ? "单词" : "翻译";
+  if (mode === "code") return "代码";
+  if (mode === "tpl") return cfg.templates[tplIdx].name;
+  return "提问";
+}
+async function saveHistory() {
+  const firstQ = (history.find((m) => m.role === "user") || {}).content || "";
+  try {
+    histId = await invoke("history_save", {
+      item: {
+        id: histId, mode: modeLabel(), source: text || firstQ.slice(0, 500),
+        messages: JSON.stringify(history),
+        model: mode === "translate" ? cfg.translate_model || cfg.model : curModel(),
+      },
+    });
+  } catch (e) { console.error(e); }
+}
 
 function setMode(m, ti) {
   if (busy && stopFn) stopFn();
@@ -147,6 +169,7 @@ function setMode(m, ti) {
   if (word) $("wText").textContent = text.trim();
   $("out").innerHTML = "";
   history = [];
+  histId = 0;
   if (m === "translate" || m === "code" || m === "tpl") {
     if (text) run(text);
     else addMsg("hint", m === "translate" ? "没有选中的文本，切换到“提问”直接问吧" : "没有选中的内容，可以直接在下方输入");

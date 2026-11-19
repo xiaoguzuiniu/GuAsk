@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod config;
+mod history;
 mod llm;
 mod selection;
 
@@ -55,6 +56,36 @@ fn set_autostart(app: AppHandle, on: bool) -> Result<(), String> {
     use tauri_plugin_autostart::ManagerExt;
     let al = app.autolaunch();
     if on { al.enable() } else { al.disable() }.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn history_save(state: State<AppState>, db: State<history::Db>, item: history::Item) -> Result<i64, String> {
+    if !state.cfg.lock().unwrap().history_enabled {
+        return Ok(0);
+    }
+    history::save(&db, item)
+}
+
+#[derive(serde::Serialize)]
+struct Page {
+    items: Vec<history::Item>,
+    total: i64,
+}
+
+#[tauri::command]
+fn history_list(db: State<history::Db>, q: String, mode: String, offset: i64, limit: i64) -> Result<Page, String> {
+    let (items, total) = history::list(&db, q.trim(), &mode, offset, limit)?;
+    Ok(Page { items, total })
+}
+
+#[tauri::command]
+fn history_delete(db: State<history::Db>, id: i64) -> Result<(), String> {
+    history::delete(&db, id)
+}
+
+#[tauri::command]
+fn history_clear(db: State<history::Db>) -> Result<(), String> {
+    history::clear(&db)
 }
 
 #[tauri::command]
@@ -132,9 +163,10 @@ fn main() {
                 let _ = w.hide();
             }
         })
-        .invoke_handler(tauri::generate_handler![get_config, save_config, chat, list_models, test_connection, set_ask_model, get_autostart, set_autostart, bubble_click, save_popup_size, stop_chat])
+        .invoke_handler(tauri::generate_handler![get_config, save_config, chat, list_models, test_connection, set_ask_model, get_autostart, set_autostart, bubble_click, save_popup_size, stop_chat, history_save, history_list, history_delete, history_clear])
         .setup(|app| {
             let dir = app.path().app_config_dir()?;
+            app.manage(history::open(&dir)?);
             let cfg = config::load(dir);
             let first_run = cfg.api_key.is_empty();
             *selection::TRIGGER.lock().unwrap() = cfg.trigger.clone();
