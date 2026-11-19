@@ -92,7 +92,7 @@ function addActions(el, getText) {
   };
   bar.append(copy, redo);
   el.after(bar);
-  $("out").scrollTop = 1e9;
+  if (follow) $("out").scrollTop = 1e9;
 }
 
 async function run(userContent) {
