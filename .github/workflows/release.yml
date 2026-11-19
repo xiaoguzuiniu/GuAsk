@@ -28,6 +28,16 @@ jobs:
           tauriScript: npx -y @tauri-apps/cli@2
           tagName: ${{ github.ref_name }}
           releaseName: GuAsk ${{ github.ref_name }}
-          releaseBody: 下载 GuAsk_*_x64-setup.exe 安装；已安装的版本会自动提示更新。
+          releaseBody: "安装版：GuAsk_*_x64-setup.exe（支持自动更新）；绿色版：GuAsk_*_x64_portable.exe（免安装，双击运行，需手动下载新版替换）"
           releaseDraft: false
           includeUpdaterJson: true
+      # 额外上传免安装绿色版（单个 exe，直接运行）
+      - name: Upload portable exe
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $v = "${{ github.ref_name }}".TrimStart("v")
+          $dst = "GuAsk_${v}_x64_portable.exe"
+          Copy-Item src-tauri\target\release\guask.exe $dst
+          gh release upload "${{ github.ref_name }}" $dst --clobber
