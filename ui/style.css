@@ -106,3 +106,7 @@ label { display: block; margin: 12px 0 4px; font-weight: 600; }
 .hl-c { color: #6e7781; font-style: italic; }
 .hl-f { color: #8250df; }
 .hl-t { color: #953800; }
+
+/* 输入框随窗口宽度自适应 */
+#askBox { width: 100%; }
+#askBox .composer { flex: 1; width: 100%; min-width: 0; }
