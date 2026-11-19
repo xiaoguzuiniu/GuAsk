@@ -229,6 +229,12 @@ document.addEventListener("click", () => $("mpick").classList.remove("open"));
 listen("selection", async (e) => {
   cfg = await invoke("get_config");
   fillModels();
+  // Alt+Q 不带划词：如果上次会话还在，直接恢复，不清空
+  if (!e.payload && (history.length || busy || $("q").value.trim())) {
+    if (mode === "translate") $("askBox").style.display = "flex"; // 翻译结果下也能直接追问
+    setTimeout(() => $("q").focus(), 50);
+    return;
+  }
   if (busy && stopFn) stopFn();
   text = e.payload;
   $("src").textContent = text;
@@ -333,5 +339,6 @@ win.onResized(() => {
 
 // 失焦自动隐藏（未固定时）
 win.onFocusChanged(({ payload: focused }) => {
-  if (!focused && !pinned) { if (busy && stopFn) stopFn(); win.hide(); }
+  // 失焦只隐藏，不打断生成，Alt+Q 回来还能继续看
+  if (!focused && !pinned) win.hide();
 });
