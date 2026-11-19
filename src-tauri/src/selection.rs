@@ -78,6 +78,9 @@ pub fn start(app: AppHandle) {
             }
             EventType::Wheel { .. } => hide_bubble(&app),
             EventType::KeyPress(k) => {
+                if k == Key::Escape {
+                    crate::shot::STOP.store(true, Ordering::Relaxed);
+                }
                 hide_bubble(&app);
                 let trig = TRIGGER.lock().unwrap().clone();
                 match trigger_keys(&trig) {

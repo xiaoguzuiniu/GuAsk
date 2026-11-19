@@ -63,8 +63,13 @@ fn register_hotkey(app: &AppHandle, hk: &str, shk: &str) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn shot_done(app: AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
-    shot::done(&app, x, y, w, h)
+async fn shot_done(app: AppHandle, x: f64, y: f64, w: f64, h: f64, long: Option<bool>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || shot::done(&app, x, y, w, h, long.unwrap_or(false))).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn shot_start(app: AppHandle) {
+    shot::start(&app);
 }
 
 #[tauri::command]
@@ -199,7 +204,7 @@ fn main() {
                 let _ = w.hide();
             }
         })
-        .invoke_handler(tauri::generate_handler![get_config, save_config, chat, list_models, test_connection, set_ask_model, get_autostart, set_autostart, bubble_click, save_popup_size, stop_chat, history_save, history_list, history_delete, history_clear, history_open, shot_done, shot_cancel])
+        .invoke_handler(tauri::generate_handler![get_config, save_config, chat, list_models, test_connection, set_ask_model, get_autostart, set_autostart, bubble_click, save_popup_size, stop_chat, history_save, history_list, history_delete, history_clear, history_open, shot_done, shot_cancel, shot_start])
         .setup(|app| {
             let dir = app.path().app_config_dir()?;
             app.manage(history::open(&dir)?);

@@ -6,19 +6,29 @@ body { background: rgba(0,0,0,.28); }
 body.sel { background: transparent; }
 #box { position: fixed; display: none; border: 2px solid #3b82f6; box-shadow: 0 0 0 9999px rgba(0,0,0,.35); border-radius: 2px; }
 #size { position: absolute; left: -2px; top: -26px; padding: 2px 8px; border-radius: 6px; background: #2563eb; color: #fff; white-space: nowrap; }
-#tip { position: fixed; top: 24px; left: 50%; transform: translateX(-50%); padding: 8px 16px; border-radius: 999px; background: rgba(24,24,27,.82); color: #fff; font-size: 13px; pointer-events: none; }
+#tip { position: fixed; top: 24px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 6px 8px 6px 16px; border-radius: 999px; background: rgba(24,24,27,.86); color: #fff; font-size: 13px; cursor: default; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
+#tip .seg { display: flex; background: rgba(255,255,255,.12); border-radius: 999px; padding: 2px; }
+#tip .seg b { font-weight: 500; padding: 3px 12px; border-radius: 999px; cursor: pointer; color: #d4d4d8; }
+#tip .seg b.on { background: #3b82f6; color: #fff; }
+#tip .k { color: #a1a1aa; font-size: 12px; padding-right: 8px; }
+#busy { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; }
 </style></head>
 <body>
-<div id="tip">拖动框选要提问的区域 · Esc 取消</div>
+<div id="tip"><span id="tipt">拖动框选区域</span><span class="seg"><b id="mN" class="on">普通截图</b><b id="mL">长截图</b></span><span class="k">Tab 切换 · Esc 取消</span></div>
 <div id="box"><span id="size"></span></div>
 <script>
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 const box = document.getElementById("box"), tip = document.getElementById("tip");
-let s = null;
+let s = null, long = false;
+function setLong(v) { long = v; document.getElementById("mN").classList.toggle("on", !v); document.getElementById("mL").classList.toggle("on", v);
+  document.getElementById("tipt").textContent = v ? "框选要滚动的区域，松开后自动向下滚动拼接（Esc 结束）" : "拖动框选区域"; }
+document.getElementById("mN").onmousedown = (e) => { e.stopPropagation(); setLong(false); };
+document.getElementById("mL").onmousedown = (e) => { e.stopPropagation(); setLong(true); };
 function reset() { s = null; box.style.display = "none"; document.body.classList.remove("sel"); tip.style.display = ""; }
 listen("shot-start", reset);
 window.addEventListener("mousedown", (e) => {
+  if (e.target.closest && e.target.closest("#tip")) return;
   if (e.button === 2) { reset(); invoke("shot_cancel"); return; }
   s = { x: e.clientX, y: e.clientY };
   tip.style.display = "none";
@@ -37,9 +47,9 @@ window.addEventListener("mouseup", (e) => {
   reset();
   if (w < 6 || h < 6) { invoke("shot_cancel"); return; }
   // 去掉边框再截
-  invoke("shot_done", { x, y, w, h });
+  invoke("shot_done", { x, y, w, h, long });
 });
 window.addEventListener("contextmenu", (e) => e.preventDefault());
-window.addEventListener("keydown", (e) => { if (e.key === "Escape") { reset(); invoke("shot_cancel"); } });
+window.addEventListener("keydown", (e) => { if (e.key === "Tab") { e.preventDefault(); setLong(!long); return; } if (e.key === "Escape") { reset(); invoke("shot_cancel"); } });
 </script>
 </body></html>

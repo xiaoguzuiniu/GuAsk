@@ -255,7 +255,7 @@ listen("selection", async (e) => {
     return;
   }
   if (busy && stopFn) stopFn();
-  image = "";
+  images = [];
   text = e.payload;
   $("src").textContent = text;
   fillTemplates();
@@ -265,7 +265,18 @@ listen("selection", async (e) => {
 });
 
 // 截图提问：截图作为第一条消息的图片附件
-let image = "";
+let images = [];
+function renderShots() {
+  let h = document.querySelector(".msg.shotprev");
+  if (!h) { $("out").innerHTML = ""; h = addMsg("hint shotprev", ""); }
+  h.innerHTML = `<div class="shots">${images.map((u, i) => `<div class="sh"><img class="shotimg" src="${u}"><button class="shx" data-i="${i}" title="移除">×</button></div>`).join("")}
+    <button class="shadd" title="再截一张">＋<span>再截一张</span></button></div>
+    <div>${images.length > 1 ? `已添加 ${images.length} 张截图，` : ""}输入问题后回车，或直接回车让 AI 解释</div>`;
+  h.querySelectorAll(".shx").forEach((b) => (b.onclick = () => { images.splice(+b.dataset.i, 1); images.length ? renderShots() : (h.remove(), addMsg("hint", "截图已全部移除")); }));
+  h.querySelector(".shadd").onclick = () => invoke("shot_start");
+  h.querySelectorAll(".shotimg").forEach((im) => (im.onclick = () => im.classList.toggle("big")));
+  $("send").disabled = !images.length && !$("q").value.trim();
+}
 function userBubble(c) {
   if (typeof c === "string") return addMsg("user", c);
   const el = addMsg("user", "");
@@ -278,15 +289,17 @@ function userBubble(c) {
 listen("image", async (e) => {
   cfg = await invoke("get_config");
   fillModels();
-  if (busy && stopFn) stopFn();
-  text = "";
-  $("src").textContent = "";
-  setMode("ask", 0, true);
-  image = e.payload;
-  $("out").innerHTML = "";
-  const h = addMsg("hint shotprev", "");
-  h.innerHTML = `<img class="shotimg" src="${image}"><div>输入问题后回车，或直接回车让 AI 解释这张图</div>`;
-  $("send").disabled = false;
+  // 还没发出的截图会话：继续追加；否则开启新会话
+  if (images.length && history.length === 0 && mode === "ask" && document.querySelector(".msg.shotprev")) {
+    images.push(e.payload);
+  } else {
+    if (busy && stopFn) stopFn();
+    text = "";
+    $("src").textContent = "";
+    setMode("ask", 0, true);
+    images = [e.payload];
+  }
+  renderShots();
   setTimeout(() => $("q").focus(), 80);
 });
 
@@ -371,11 +384,13 @@ function startTranslate() {
 
 const send = () => {
   const q = $("q").value.trim();
-  if (image && history.length === 0 && mode === "ask" && !busy) {
+  if (images.length && history.length === 0 && mode === "ask" && !busy) {
     $("q").value = ""; autoGrow();
     const h = document.querySelector(".msg.hint"); if (h) h.remove();
-    const content = [{ type: "text", text: q || "请识别并解释这张截图的内容；如果是报错或代码，说明原因和解决办法。" }, { type: "image_url", image_url: { url: image } }];
-    userBubble([{ type: "image_url", image_url: { url: image } }, ...(q ? [{ type: "text", text: q }] : [])]);
+    const imgs = images.map((u) => ({ type: "image_url", image_url: { url: u } }));
+    images = [];
+    const content = [{ type: "text", text: q || (imgs.length > 1 ? "请识别并解释这几张截图的内容；如果是报错或代码，说明原因和解决办法。" : "请识别并解释这张截图的内容；如果是报错或代码，说明原因和解决办法。") }, ...imgs];
+    userBubble([...imgs, ...(q ? [{ type: "text", text: q }] : [])]);
     run(content);
     return;
   }
@@ -399,7 +414,7 @@ const send = () => {
 };
 $("send").onclick = send;
 $("stop").onclick = () => stopFn && stopFn();
-const autoGrow = () => { const q = $("q"); q.style.height = "auto"; q.style.height = q.scrollHeight + "px"; $("send").disabled = !q.value.trim() && !(image && history.length === 0) && !((mode === "code" || mode === "tpl") && history.length === 0 && text); };
+const autoGrow = () => { const q = $("q"); q.style.height = "auto"; q.style.height = q.scrollHeight + "px"; $("send").disabled = !q.value.trim() && !(images.length && history.length === 0) && !((mode === "code" || mode === "tpl") && history.length === 0 && text); };
 $("q").addEventListener("input", autoGrow);
 $("q").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
 document.addEventListener("keydown", (e) => {
