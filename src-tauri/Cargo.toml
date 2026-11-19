@@ -26,3 +26,6 @@ base64 = "0.22"
 opt-level = "s"
 lto = true
 strip = true
+
+[profile.dev]
+opt-level = 1

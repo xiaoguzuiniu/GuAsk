@@ -161,11 +161,11 @@ fn long_capture(app: &AppHandle, x: i32, y: i32, w: i32, h: i32) -> Result<(Vec<
     Ok((out, total))
 }
 
-const SEG: usize = 8;
-type Sig = Option<[u32; SEG]>;
+const SEG: usize = 24;
+type Sig = [u8; SEG];
 
-/// 每行分成 8 段分别算特征值（动图/表情只影响局部段）；忽略左右边缘（滚动条、边框）；
-/// 纯色行（空白背景）记为 None，不参与匹配
+/// 每行压成 24 个色块的灰度均值。用均值而不是精确像素：
+/// 高 DPI / 平滑滚动下文字会按亚像素位置重新渲染，像素不会完全相同，均值很稳定
 fn row_sigs(img: &[u8], w: usize, h: usize) -> Vec<Sig> {
     let row = w * 4;
     let l = (w / 20).max(2);
@@ -174,68 +174,74 @@ fn row_sigs(img: &[u8], w: usize, h: usize) -> Vec<Sig> {
     (0..h)
         .map(|y| {
             let px = &img[y * row..(y + 1) * row];
-            let first = (px[l * 4] >> 3, px[l * 4 + 1] >> 3, px[l * 4 + 2] >> 3);
-            let mut uniform = true;
-            let mut s = [0u32; SEG];
+            let mut s = [0u8; SEG];
             for (k, sv) in s.iter_mut().enumerate() {
-                let mut hsh: u32 = 2166136261;
+                let mut sum = 0u32;
                 for x in (l + k * seg)..(l + (k + 1) * seg) {
                     let i = x * 4;
-                    let c = (px[i] >> 3, px[i + 1] >> 3, px[i + 2] >> 3);
-                    if c != first {
-                        uniform = false;
-                    }
-                    for v in [c.0, c.1, c.2] {
-                        hsh ^= v as u32;
-                        hsh = hsh.wrapping_mul(16777619);
-                    }
+                    sum += (px[i] as u32 * 3 + px[i + 1] as u32 * 6 + px[i + 2] as u32) / 10;
                 }
-                *sv = hsh;
+                *sv = (sum / seg as u32) as u8;
             }
-            if uniform { None } else { Some(s) }
+            s
         })
         .collect()
 }
 
-fn row_eq(a: &Sig, b: &Sig) -> bool {
-    match (a, b) {
-        (Some(a), Some(b)) => a.iter().zip(b).filter(|(x, y)| x == y).count() * 4 >= SEG * 3,
-        (None, None) => true,
-        _ => false,
-    }
+/// 一行是否有内容（不是纯背景）
+fn busy_row(s: &Sig) -> bool {
+    let (mn, mx) = s.iter().fold((255u8, 0u8), |(a, b), &v| (a.min(v), b.max(v)));
+    mx - mn > 6
 }
 
-/// 找 cur 相对 prev 的滚动量 d（向下滚为正）：cur[i] == prev[i + d]
+/// 两行差异：丢掉差得最多的 1/4 块（动图、悬停高亮只影响局部），其余求和
+fn row_cost(a: &Sig, b: &Sig) -> u32 {
+    let mut d = [0u32; SEG];
+    for k in 0..SEG {
+        d[k] = (a[k] as i32 - b[k] as i32).unsigned_abs().min(40);
+    }
+    d.sort_unstable();
+    d[..SEG * 3 / 4].iter().sum::<u32>() * 4 / 3
+}
+
+/// 找 cur 相对 prev 的滚动量 d（向下滚为正）：cur[i] ≈ prev[i + d]
 fn match_shift(p: &[Sig], c: &[Sig]) -> Option<i64> {
     let h = p.len() as i64;
-    let min_overlap = (h / 8).max(16);
-    let mut best: Option<(i64, usize, usize)> = None;
+    let min_overlap = (h / 6).max(20);
+    let pb: Vec<bool> = p.iter().map(busy_row).collect();
+    let cb: Vec<bool> = c.iter().map(busy_row).collect();
+    let mut best: Option<(i64, u64)> = None; // (d, 平均代价*100)
+    let mut costs = Vec::new();
     for d in -(h - min_overlap)..=(h - min_overlap) {
-        let (mut hit, mut n) = (0usize, 0usize);
         let (a, b) = (0.max(-d), h.min(h - d));
-        for i in a..b {
-            let (ci, pi) = (&c[i as usize], &p[(i + d) as usize]);
-            if ci.is_none() && pi.is_none() {
-                continue;
+        let (mut sum, mut n) = (0u64, 0u64);
+        let mut i = a;
+        while i < b {
+            let (ci, pi) = (i as usize, (i + d) as usize);
+            if cb[ci] || pb[pi] {
+                sum += row_cost(&c[ci], &p[pi]) as u64;
+                n += 1;
             }
-            n += 1;
-            if row_eq(ci, pi) {
-                hit += 1;
-            }
+            i += 2;
         }
-        if n < 6 {
+        if n < 8 {
             continue;
         }
-        let better = match best {
-            None => true,
-            Some((bd, bh, bn)) => hit * bn > bh * n || (hit * bn == bh * n && (hit > bh || (hit == bh && d.abs() < bd.abs()))),
-        };
-        if better {
-            best = Some((d, hit, n));
+        let avg = sum * 100 / n / SEG as u64; // 每块平均灰度差 ×100
+        costs.push(avg);
+        if best.map_or(true, |(bd, bv)| avg < bv || (avg == bv && d.abs() < bd.abs())) {
+            best = Some((d, avg));
         }
     }
-    let (d, hit, n) = best?;
-    if hit * 10 >= n * 6 && hit >= 6 { Some(d) } else { None }
+    let (d, v) = best?;
+    // 绝对阈值：平均每块差 < 4 灰度；相对阈值：明显好于其它位置（避免空白/重复内容误判）
+    costs.sort_unstable();
+    let med = costs[costs.len() / 2];
+    if v <= 50 || (v <= 400 && v * 2 <= med) {
+        Some(d)
+    } else {
+        None
+    }
 }
 
 fn capture(x: i32, y: i32, w: i32, h: i32) -> Result<Vec<u8>, String> {
@@ -295,12 +301,23 @@ mod tests {
     #[test]
     fn shift_detect() {
         // 模拟一张长页面：每 7 行一段文字，其余空白
-        let page: Vec<Sig> = (0..2000u32).map(|i| if i % 7 < 3 { Some([i * 31 + 5; SEG]) } else { None }).collect();
+        let page: Vec<Sig> = (0..2000u32).map(|i| {
+            let mut s = [245u8; SEG];
+            if i % 9 < 4 { for k in 0..SEG { s[k] = ((i * 37 + k as u32 * 101) % 200) as u8; } }
+            s
+        }).collect();
         let win = |top: usize| page[top..top + 400].to_vec();
         assert_eq!(match_shift(&win(100), &win(100)), Some(0));
         assert_eq!(match_shift(&win(100), &win(103)), Some(3));
         assert_eq!(match_shift(&win(100), &win(400)), Some(300));
         assert_eq!(match_shift(&win(400), &win(250)), Some(-150));
         assert_eq!(match_shift(&win(100), &win(900)), None);
+        // 亚像素渲染：每个值都抖动 ±2，仍要对上
+        let noisy = |top: usize| win(top).into_iter().enumerate().map(|(r, mut s)| { for (k, v) in s.iter_mut().enumerate() { *v = v.saturating_add(((r + k) % 3) as u8).saturating_sub(1); } s }).collect::<Vec<_>>();
+        assert_eq!(match_shift(&win(100), &noisy(160)), Some(60));
+        assert_eq!(match_shift(&win(500), &noisy(420)), Some(-80));
+        // 局部动图：每行有 3 块乱变
+        let gif = |top: usize| win(top).into_iter().enumerate().map(|(r, mut s)| { for k in 5..8 { s[k] = ((r * 13 + k * 7) % 255) as u8; } s }).collect::<Vec<_>>();
+        assert_eq!(match_shift(&win(100), &gif(140)), Some(40));
     }
 }
