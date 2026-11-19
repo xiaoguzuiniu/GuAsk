@@ -67,7 +67,9 @@ pub fn start(app: AppHandle) {
                     thread::spawn(move || on_select(app, p, Some(seq)));
                 }
             }
+            EventType::Wheel { .. } => hide_bubble(&app),
             EventType::KeyPress(k) => {
+                hide_bubble(&app);
                 let trig = TRIGGER.lock().unwrap().clone();
                 match trigger_keys(&trig) {
                     Some(ks) if ks.contains(&k) => {
@@ -114,7 +116,11 @@ pub fn start(app: AppHandle) {
 }
 fn in_window(app: &AppHandle, label: &str, p: (f64, f64)) -> bool {
     let Some(w) = app.get_webview_window(label) else { return false };
-    if !w.is_visible().unwrap_or(false) {
+    let visible = match w.hwnd() {
+        Ok(h) => unsafe { windows::Win32::UI::WindowsAndMessaging::IsWindowVisible(windows::Win32::Foundation::HWND(h.0 as _)).as_bool() },
+        Err(_) => false,
+    };
+    if !visible {
         return false;
     }
     match (w.outer_position(), w.outer_size()) {
@@ -312,16 +318,21 @@ fn show_bubble(app: &AppHandle, p: (f64, f64), seq: u32) {
 }
 
 fn hide_bubble(app: &AppHandle) {
+    BUBBLE_GEN.fetch_add(1, Ordering::SeqCst);
+    // 直接用 Win32 隐藏：窗口是用 ShowWindow 显示的，Tauri 的状态不可靠
     if let Some(w) = app.get_webview_window("bubble") {
-        if w.is_visible().unwrap_or(false) {
-            let _ = w.hide();
+        if let Ok(h) = w.hwnd() {
+            use windows::Win32::Foundation::HWND;
+            use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE};
+            unsafe {
+                let _ = ShowWindow(HWND(h.0 as _), SW_HIDE);
+            }
         }
     }
 }
 
 /// 小图标被点击：取词并弹窗
 pub fn bubble_click(app: AppHandle) {
-    BUBBLE_GEN.fetch_add(1, Ordering::SeqCst);
     hide_bubble(&app);
     if let Some((p, seq)) = BUBBLE.lock().unwrap().take() {
         thread::spawn(move || on_select(app, p, Some(seq)));
