@@ -92,38 +92,47 @@ fn long_capture(app: &AppHandle, x: i32, y: i32, w: i32, h: i32) -> Result<(Vec<
         let _ = f.show();
     }
     let mut last = prev.clone();
-    let (mut lost, mut miss) = (false, 0);
+    let mut psig = row_sigs(&prev, w as usize, h as usize);
+    // pos = 当前帧顶部在拼接图中的位置（可上下滚动，只有超出已拼部分才追加）
+    let mut pos: i64 = 0;
+    let mut lost = false;
+    let mut lost_since: Option<std::time::Instant> = None;
     let t0 = std::time::Instant::now();
     while !STOP.load(Ordering::Relaxed) && out.len() / row < 30000 && t0.elapsed().as_secs() < 300 {
-        // 高频采样，减少两帧之间滚过太多导致没有重叠
         std::thread::sleep(std::time::Duration::from_millis(30));
         let cur = capture(x, y, w, h)?;
         if cur == last {
-            continue; // 画面没变，省掉对比
+            continue; // 画面没变
         }
         last = cur.clone();
-        match find_shift(&prev, &cur, w as usize, h as usize) {
+        let csig = row_sigs(&cur, w as usize, h as usize);
+        match match_shift(&psig, &csig) {
             Some(d) => {
-                if d > 0 {
-                    out.extend_from_slice(&cur[(h as usize - d) * row..]);
-                    prev = cur;
+                pos += d;
+                let total = (out.len() / row) as i64;
+                if pos + h as i64 > total && pos >= 0 {
+                    let from = (total - pos).max(0) as usize;
+                    out.extend_from_slice(&cur[from * row..]);
                     let _ = app.emit_to("shot", "shot-progress", out.len() / row);
                 }
+                prev = cur;
+                psig = csig;
+                lost_since = None;
                 if lost {
                     lost = false;
                     let _ = app.emit_to("shot", "shot-warn", false);
                 }
-                miss = 0;
             }
             None => {
-                // 连续几帧都对不上 = 滚太快丢了重叠，提示往回滚；prev 保持不变，回滚后能重新接上
-                miss += 1;
-                if miss >= 4 && !lost {
+                // 对不上可能只是滚动动画中途；持续 0.6 秒都对不上才提示
+                let since = *lost_since.get_or_insert_with(std::time::Instant::now);
+                if !lost && since.elapsed().as_millis() > 600 {
                     lost = true;
                     let _ = app.emit_to("shot", "shot-warn", true);
                 }
             }
         }
+        let _ = &prev;
     }
     if let Some(win) = app.get_webview_window("shot") {
         let _ = win.hide();
@@ -135,46 +144,71 @@ fn long_capture(app: &AppHandle, x: i32, y: i32, w: i32, h: i32) -> Result<(Vec<
     Ok((out, total))
 }
 
-/// 找出 cur 相对 prev 向上滚动了多少行：cur[0..h-d] ≈ prev[d..h]
-fn find_shift(prev: &[u8], cur: &[u8], w: usize, h: usize) -> Option<usize> {
+/// 每行的特征值：忽略左右边缘（滚动条、边框），颜色量化以容忍轻微抖动；
+/// 纯色行（空白背景）记为 None，不参与匹配
+fn row_sigs(img: &[u8], w: usize, h: usize) -> Vec<Option<u64>> {
     let row = w * 4;
-    let xs: Vec<usize> = (0..w).step_by((w / 64).max(1)).collect();
-    let diff = |d: usize, limit: u64| -> Option<u64> {
-        let n = h - d;
-        let step = (n / 80).max(1);
-        let mut s = 0u64;
-        let mut cnt = 0u64;
-        for r in (0..n).step_by(step) {
-            let a = &cur[r * row..];
-            let b = &prev[(r + d) * row..];
-            for &x in &xs {
+    let (l, r) = ((w / 20).max(2), w.saturating_sub((w / 20).max(24)));
+    let r = r.max(l + 1);
+    (0..h)
+        .map(|y| {
+            let px = &img[y * row..(y + 1) * row];
+            let mut hsh: u64 = 1469598103934665603;
+            let first = (px[l * 4] >> 3, px[l * 4 + 1] >> 3, px[l * 4 + 2] >> 3);
+            let mut uniform = true;
+            for x in l..r {
                 let i = x * 4;
-                s += (a[i] as i32 - b[i] as i32).unsigned_abs() as u64
-                    + (a[i + 1] as i32 - b[i + 1] as i32).unsigned_abs() as u64
-                    + (a[i + 2] as i32 - b[i + 2] as i32).unsigned_abs() as u64;
-                cnt += 1;
-            }
-            if s > limit * cnt.max(1) * 4 {
-                return None;
-            }
-        }
-        Some(s / cnt.max(1))
-    };
-    if diff(0, 2).map_or(false, |v| v <= 1) {
-        return Some(0);
-    }
-    let mut best: Option<(usize, u64)> = None;
-    for d in 1..h.saturating_sub(h / 10).max(2) {
-        if let Some(v) = diff(d, 12) {
-            if best.map_or(true, |(_, b)| v < b) {
-                best = Some((d, v));
-                if v == 0 {
-                    break;
+                let c = (px[i] >> 3, px[i + 1] >> 3, px[i + 2] >> 3);
+                if c != first {
+                    uniform = false;
+                }
+                for v in [c.0, c.1, c.2] {
+                    hsh ^= v as u64;
+                    hsh = hsh.wrapping_mul(1099511628211);
                 }
             }
+            if uniform { None } else { Some(hsh) }
+        })
+        .collect()
+}
+
+/// 找 cur 相对 prev 的滚动量 d（向下滚为正）：cur[i] == prev[i + d]
+/// 只统计有内容的行，匹配率足够高才认可；允许局部变化（悬停高亮、滚动条等）
+fn match_shift(p: &[Option<u64>], c: &[Option<u64>]) -> Option<i64> {
+    let h = p.len() as i64;
+    let min_overlap = (h / 8).max(16);
+    let mut best: Option<(i64, usize, usize)> = None; // (d, 命中, 有效行)
+    for d in -(h - min_overlap)..=(h - min_overlap) {
+        let (mut hit, mut n) = (0usize, 0usize);
+        let (a, b) = (0.max(-d), h.min(h - d));
+        for i in a..b {
+            let (ci, pi) = (c[i as usize], p[(i + d) as usize]);
+            if ci.is_none() && pi.is_none() {
+                continue;
+            }
+            n += 1;
+            if ci == pi {
+                hit += 1;
+            }
+        }
+        if n < 6 {
+            continue;
+        }
+        let better = match best {
+            None => true,
+            Some((bd, bh, bn)) => hit * bn > bh * n || (hit * bn == bh * n && (hit > bh || (hit == bh && d.abs() < bd.abs()))),
+        };
+        if better {
+            best = Some((d, hit, n));
         }
     }
-    best.filter(|&(_, v)| v <= 6).map(|(d, _)| d)
+    let (d, hit, n) = best?;
+    // 至少 60% 的有内容行对得上，并且命中行数不能太少
+    if hit * 10 >= n * 6 && hit >= 6 {
+        Some(d)
+    } else {
+        None
+    }
 }
 
 fn capture(x: i32, y: i32, w: i32, h: i32) -> Result<Vec<u8>, String> {
@@ -226,4 +260,20 @@ fn encode(buf: &[u8], w: i32, h: i32) -> Result<Vec<u8>, String> {
         wr.write_image_data(buf).map_err(|e| e.to_string())?;
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn shift_detect() {
+        // 模拟一张长页面：每 7 行一段文字，其余空白
+        let page: Vec<Option<u64>> = (0..2000u64).map(|i| if i % 7 < 3 { Some(i * 31 + 5) } else { None }).collect();
+        let win = |top: usize| page[top..top + 400].to_vec();
+        assert_eq!(match_shift(&win(100), &win(100)), Some(0));
+        assert_eq!(match_shift(&win(100), &win(103)), Some(3));
+        assert_eq!(match_shift(&win(100), &win(400)), Some(300));
+        assert_eq!(match_shift(&win(400), &win(250)), Some(-150));
+        assert_eq!(match_shift(&win(100), &win(900)), None);
+    }
 }
