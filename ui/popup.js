@@ -99,6 +99,7 @@ async function run(userContent) {
   if (busy) return;
   setBusy(true);
   history.push({ role: "user", content: userContent });
+  follow = true;
   const el = addMsg("loading", "思考中…");
   let acc = "";
   let stopped = false;
@@ -108,7 +109,7 @@ async function run(userContent) {
     acc += s;
     el.className = "msg md";
     el.innerHTML = renderMd(acc);
-    $("out").scrollTop = 1e9;
+    if (follow) $("out").scrollTop = 1e9;
   };
   try {
     await invoke("chat", {
@@ -131,6 +132,14 @@ async function run(userContent) {
   setBusy(false);
 }
 let stopFn = null;
+
+// 生成时自动跟随到底部；用户往上翻看时停止跟随，回到底部后恢复
+let follow = true;
+$("out").addEventListener("scroll", () => {
+  const o = $("out");
+  follow = o.scrollHeight - o.scrollTop - o.clientHeight < 30;
+});
+$("out").addEventListener("wheel", (e) => { if (e.deltaY < 0) follow = false; }, { passive: true });
 
 // 历史记录：同一次划词的追问合并为一条
 let histId = 0;
