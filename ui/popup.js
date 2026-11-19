@@ -59,7 +59,7 @@ function addMsg(cls, s) {
 
 function setBusy(b) {
   busy = b;
-  $("stop").style.display = b ? "" : "none";
+  $("stop").style.display = b && mode !== "translate" ? "" : "none";
   $("send").disabled = b || !$("q").value.trim();
   document.querySelectorAll(".acts").forEach((a) => a.classList.toggle("dis", b));
 }
