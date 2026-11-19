@@ -188,11 +188,6 @@ mark { background: #fef08a; color: inherit; border-radius: 2px; }
     <label class="field"><span>代码解释提示词</span><textarea id="code_prompt" style="height:110px"></textarea></label>
   </div>
 
-  <div class="card">
-    <h2>提示词模板<small style="font-weight:400;color:#a1a1aa;margin-left:6px">弹窗顶部「模板」下拉里切换，{lang} 会替换为目标语言</small></h2>
-    <div id="tpls"></div>
-    <button id="addTpl" type="button" style="margin-top:8px">＋ 添加模板</button>
-  </div>
 </div>
 
 <div class="footer"><button class="primary" id="save">保存</button></div><div class="toast" id="toast"></div>
@@ -207,18 +202,9 @@ const escA = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">
 let cfg = {};
 let askModels = [];
 let allModels = [];
-let tpls = [];
-setTimeout(() => ($("addTpl").onclick = () => { tpls.push({ name: "", prompt: "" }); renderTpls(); $("tpls").lastElementChild.querySelector("input").focus(); }));
-function renderTpls() {
-  $("tpls").innerHTML = tpls.map((x, i) => `<div class="tpl"><div class="row"><input data-i="${i}" data-k="name" value="${escA(x.name)}" placeholder="名称，如：润色"><button type="button" class="del" data-del="${i}" title="删除">删除</button></div><textarea data-i="${i}" data-k="prompt" placeholder="系统提示词">${escA(x.prompt)}</textarea></div>`).join("")
-    || `<div class="hint">还没有模板</div>`;
-}
-document.addEventListener("input", (e) => { const d = e.target.dataset; if (d.k && d.i !== undefined) tpls[+d.i][d.k] = e.target.value; });
-document.addEventListener("click", (e) => { const i = e.target.dataset && e.target.dataset.del; if (i !== undefined) { tpls.splice(+i, 1); renderTpls(); } });
 
 const form = () => {
-  const c = { ...cfg, auto_translate: $("auto_translate").checked, code_detect: $("code_detect").checked, history_enabled: $("history_enabled").checked, ask_models: askModels, translate_model: "",
-    templates: tpls.map((x) => ({ name: x.name.trim(), prompt: x.prompt.trim() })).filter((x) => x.name && x.prompt) };
+  const c = { ...cfg, auto_translate: $("auto_translate").checked, code_detect: $("code_detect").checked, history_enabled: $("history_enabled").checked, ask_models: askModels, translate_model: "", };
   keys.forEach((k) => (c[k] = $(k).value.trim()));
   return c;
 };
@@ -258,8 +244,6 @@ invoke("get_config").then((c) => {
   $("auto_translate").checked = c.auto_translate;
   $("code_detect").checked = c.code_detect;
   $("history_enabled").checked = c.history_enabled;
-  tpls = (c.templates || []).map((x) => ({ ...x }));
-  renderTpls();
   askModels = c.ask_models || [];
   renderChips();
 });

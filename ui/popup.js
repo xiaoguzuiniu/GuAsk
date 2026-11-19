@@ -178,8 +178,6 @@ function setMode(m, ti, fresh) {
   $("mTrans").classList.toggle("on", m === "translate");
   $("mAsk").classList.toggle("on", m === "ask");
   $("mCode").classList.toggle("on", m === "code");
-  $("tBtn").classList.toggle("on", m === "tpl");
-  $("tName").textContent = m === "tpl" ? cfg.templates[ti].name : "模板";
   $("askBox").style.display = m === "translate" ? "none" : "flex";
   const word = m === "translate" && isWord(text);
   $("word").style.display = word ? "" : "none";
@@ -271,7 +269,7 @@ listen("restore", async (e) => {
   fillModels();
   let msgs = [];
   try { msgs = JSON.parse(it.messages); } catch {}
-  const ti = (cfg.templates || []).findIndex((x) => x.name === it.mode);
+  const ti = -1;
   const m = { "翻译": "translate", "单词": "translate", "代码": "code", "提问": "ask" }[it.mode] || (ti >= 0 ? "tpl" : "ask");
   const first = (msgs[0] || {}).content || "";
   // 提问时第一条消息里包着选中内容；无选中时 source 就是问题本身
@@ -306,20 +304,7 @@ $("mTrans").onclick = () => setMode("translate");
 $("mAsk").onclick = () => setMode("ask");
 $("mCode").onclick = () => setMode("code");
 
-function fillTemplates() {
-  const list = cfg.templates || [];
-  $("tpick").style.display = list.length ? "" : "none";
-  $("tMenu").innerHTML = "";
-  list.forEach((tp, i) => {
-    const d = document.createElement("div");
-    d.textContent = tp.name;
-    if (mode === "tpl" && i === tplIdx) d.className = "cur";
-    d.onclick = () => { $("tpick").classList.remove("open"); setMode("tpl", i); };
-    $("tMenu").appendChild(d);
-  });
-}
-$("tBtn").onclick = (e) => { e.stopPropagation(); fillTemplates(); $("tpick").classList.toggle("open"); };
-document.addEventListener("click", () => $("tpick").classList.remove("open"));
+function fillTemplates() {}
 
 // 朗读：Windows 自带语音（SAPI），离线可用
 function speak() {
