@@ -183,20 +183,41 @@ fn main() {
 
             // 托盘
             let enable = CheckMenuItem::with_id(app, "enable", "启用划词", true, true, None::<&str>)?;
+            let auto_on = {
+                use tauri_plugin_autostart::ManagerExt;
+                app.autolaunch().is_enabled().unwrap_or(false)
+            };
+            let autostart = CheckMenuItem::with_id(app, "autostart", "开机自启", true, auto_on, None::<&str>)?;
+            let ask = MenuItem::with_id(app, "ask", "快速提问", true, None::<&str>)?;
             let settings = MenuItem::with_id(app, "settings", "设置", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
             let sep = PredefinedMenuItem::separator(app)?;
-            let menu = Menu::with_items(app, &[&enable, &settings, &sep, &quit])?;
+            let sep2 = PredefinedMenuItem::separator(app)?;
+            let menu = Menu::with_items(app, &[&enable, &autostart, &sep, &ask, &settings, &sep2, &quit])?;
             let enable_c = enable.clone();
+            let auto_c = autostart.clone();
             TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("GuAsk 划词翻译/提问")
                 .menu(&menu)
+                .show_menu_on_left_click(false)
+                .on_tray_icon_event(|tray, e| {
+                    if let tauri::tray::TrayIconEvent::Click { button: tauri::tray::MouseButton::Left, button_state: tauri::tray::MouseButtonState::Up, .. } = e {
+                        open_settings(tray.app_handle());
+                    }
+                })
                 .on_menu_event(move |app, e| match e.id().as_ref() {
                     "enable" => {
                         let on = enable_c.is_checked().unwrap_or(true);
                         selection::ENABLED.store(on, Ordering::Relaxed);
                     }
+                    "autostart" => {
+                        let on = auto_c.is_checked().unwrap_or(false);
+                        if set_autostart(app.clone(), on).is_err() {
+                            let _ = auto_c.set_checked(!on);
+                        }
+                    }
+                    "ask" => selection::open_blank(app),
                     "settings" => open_settings(app),
                     "quit" => app.exit(0),
                     _ => {}
