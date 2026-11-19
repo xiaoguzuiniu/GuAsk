@@ -91,18 +91,39 @@ fn long_capture(app: &AppHandle, x: i32, y: i32, w: i32, h: i32) -> Result<(Vec<
         let _ = f.set_position(PhysicalPosition::new(x - 3, y - 3));
         let _ = f.show();
     }
+    let mut last = prev.clone();
+    let (mut lost, mut miss) = (false, 0);
     let t0 = std::time::Instant::now();
     while !STOP.load(Ordering::Relaxed) && out.len() / row < 30000 && t0.elapsed().as_secs() < 300 {
-        std::thread::sleep(std::time::Duration::from_millis(120));
+        // 高频采样，减少两帧之间滚过太多导致没有重叠
+        std::thread::sleep(std::time::Duration::from_millis(30));
         let cur = capture(x, y, w, h)?;
-        if let Some(d) = find_shift(&prev, &cur, w as usize, h as usize) {
-            if d > 0 {
-                out.extend_from_slice(&cur[(h as usize - d) * row..]);
-                prev = cur;
-                let _ = app.emit_to("shot", "shot-progress", out.len() / row);
+        if cur == last {
+            continue; // 画面没变，省掉对比
+        }
+        last = cur.clone();
+        match find_shift(&prev, &cur, w as usize, h as usize) {
+            Some(d) => {
+                if d > 0 {
+                    out.extend_from_slice(&cur[(h as usize - d) * row..]);
+                    prev = cur;
+                    let _ = app.emit_to("shot", "shot-progress", out.len() / row);
+                }
+                if lost {
+                    lost = false;
+                    let _ = app.emit_to("shot", "shot-warn", false);
+                }
+                miss = 0;
+            }
+            None => {
+                // 连续几帧都对不上 = 滚太快丢了重叠，提示往回滚；prev 保持不变，回滚后能重新接上
+                miss += 1;
+                if miss >= 4 && !lost {
+                    lost = true;
+                    let _ = app.emit_to("shot", "shot-warn", true);
+                }
             }
         }
-        // 对不上（滚动动画中途等）就跳过这一帧，等画面稳定
     }
     if let Some(win) = app.get_webview_window("shot") {
         let _ = win.hide();

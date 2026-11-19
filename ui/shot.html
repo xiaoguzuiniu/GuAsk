@@ -18,6 +18,8 @@ body.barmode #tip, body.barmode #box { display: none !important; }
 #bar .dot { width: 8px; height: 8px; border-radius: 50%; background: #ef4444; animation: blink 1s infinite; flex: none; }
 #bar span#bart { flex: 1; white-space: nowrap; }
 #bar button { border: none; border-radius: 999px; background: #3b82f6; color: #fff; padding: 5px 14px; font-size: 12.5px; cursor: pointer; }
+#bar.warn { background: rgba(220,38,38,.95); }
+#bar.warn .dot { background: #fff; }
 @keyframes blink { 50% { opacity: .3; } }
 #busy { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; }
 </style></head>
@@ -35,7 +37,10 @@ function setLong(v) { long = v; document.getElementById("mN").classList.toggle("
 document.getElementById("mN").onmousedown = (e) => { e.stopPropagation(); setLong(false); };
 document.getElementById("mL").onmousedown = (e) => { e.stopPropagation(); setLong(true); };
 listen("shot-bar", () => { document.body.classList.add("barmode"); document.getElementById("bart").textContent = "滚动鼠标截取下方内容 · Enter 完成"; });
-listen("shot-progress", (e) => { document.getElementById("bart").textContent = `已截取 ${e.payload}px · 继续滚动或点完成`; });
+listen("shot-progress", (e) => { px = e.payload; document.getElementById("bart").textContent = `已截取 ${e.payload}px · 继续滚动或点完成`; });
+let px = 0;
+listen("shot-warn", (e) => { const b = document.getElementById("bar"); b.classList.toggle("warn", e.payload);
+  document.getElementById("bart").textContent = e.payload ? "滚太快了，往回滚一点就能接上" : `已截取 ${px}px · 继续滚动或点完成`; });
 document.getElementById("fin").onclick = () => invoke("shot_finish");
 function reset() { document.body.classList.remove("barmode"); s = null; box.style.display = "none"; document.body.classList.remove("sel"); tip.style.display = ""; }
 listen("shot-start", (e) => { reset(); const [l, t] = e.payload || []; if (l != null) { tip.style.left = l + "px"; tip.style.top = t + "px"; } });
