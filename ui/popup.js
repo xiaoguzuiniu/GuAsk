@@ -67,7 +67,7 @@ function setBusy(b) {
 const ICON_COPY = `<svg width="13" height="13" viewBox="0 0 16 16"><rect x="5" y="5" width="9" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2h-6A1.5 1.5 0 0 0 2 3.5v6A1.5 1.5 0 0 0 3.5 11H5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>`;
 const ICON_REDO = `<svg width="13" height="13" viewBox="0 0 16 16"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
-function addActions(el, getText) {
+function addActions(el, getText, hist) {
   document.querySelectorAll(".acts .redo").forEach((b) => b.remove()); // 只有最后一条可重新生成
   const bar = document.createElement("div");
   bar.className = "acts";
@@ -86,8 +86,8 @@ function addActions(el, getText) {
     if (busy) return;
     bar.remove();
     el.remove();
-    history.pop(); // 去掉 assistant
-    const u = history.pop(); // 取出 user 重新发
+    hist.pop(); // 去掉 assistant
+    const u = hist.pop(); // 取出 user 重新发
     run(u.content);
   };
   bar.append(copy, redo);
@@ -98,7 +98,8 @@ function addActions(el, getText) {
 async function run(userContent) {
   if (busy) return;
   setBusy(true);
-  history.push({ role: "user", content: userContent });
+  const sess = cur, hist = sess.history, m = mode;
+  hist.push({ role: "user", content: userContent });
   follow = true;
   const el = addMsg("loading", "思考中…");
   let acc = "";
@@ -113,20 +114,20 @@ async function run(userContent) {
   };
   try {
     await invoke("chat", {
-      messages: [{ role: "system", content: sysPrompt() }, ...history],
-      model: mode === "translate" ? null : curModel() || null,
+      messages: [{ role: "system", content: sysPrompt() }, ...hist],
+      model: m === "translate" ? null : curModel() || null,
       onEvent: ch,
     });
     if (stopped && !acc) { el.className = "msg hint"; el.textContent = "已停止"; }
     if (stopped && acc) el.insertAdjacentHTML("beforeend", `<div class="stopped">· 已停止生成</div>`);
-    history.push({ role: "assistant", content: acc });
+    hist.push({ role: "assistant", content: acc });
     const final = acc;
-    addActions(el, () => final);
-    if (acc) saveHistory();
+    addActions(el, () => final, hist);
+    if (acc) saveHistory(sess);
   } catch (e) {
     el.className = "msg err";
     el.textContent = String(e);
-    history.pop();
+    hist.pop();
   }
   stopFn = null;
   setBusy(false);
@@ -141,29 +142,37 @@ $("out").addEventListener("scroll", () => {
 });
 $("out").addEventListener("wheel", (e) => { if (e.deltaY < 0) follow = false; }, { passive: true });
 
-// 历史记录：同一次划词的追问合并为一条
-let histId = 0;
+// 每个模式各自一份会话（同一次划词内切换不丢失），重新划词才清空
+let sessions = {};
+let cur = null;
 function modeLabel() {
   if (mode === "translate") return isWord(text) ? "单词" : "翻译";
   if (mode === "code") return "代码";
   if (mode === "tpl") return cfg.templates[tplIdx].name;
   return "提问";
 }
-async function saveHistory() {
-  const firstQ = (history.find((m) => m.role === "user") || {}).content || "";
+async function saveHistory(s) {
+  const firstQ = (s.history.find((m) => m.role === "user") || {}).content || "";
   try {
-    histId = await invoke("history_save", {
+    s.histId = await invoke("history_save", {
       item: {
-        id: histId, mode: modeLabel(), source: text || firstQ.slice(0, 500),
-        messages: JSON.stringify(history),
-        model: mode === "translate" ? cfg.translate_model || cfg.model : curModel(),
+        id: s.histId, mode: s.label, source: text || firstQ.slice(0, 500),
+        messages: JSON.stringify(s.history),
+        model: s.mode === "translate" ? cfg.translate_model || cfg.model : curModel(),
       },
     });
   } catch (e) { console.error(e); }
 }
 
-function setMode(m, ti) {
-  if (busy && stopFn) stopFn();
+function setMode(m, ti, fresh) {
+  // 把当前会话的内容收起来（生成中也继续在后台写入）
+  if (cur && !fresh) {
+    cur.frag = document.createDocumentFragment();
+    while ($("out").firstChild) cur.frag.appendChild($("out").firstChild);
+    cur.q = $("q").value;
+    cur.top = $("out").scrollTop;
+  }
+  if (fresh) sessions = {};
   mode = m;
   if (m === "tpl") tplIdx = ti;
   $("mTrans").classList.toggle("on", m === "translate");
@@ -177,8 +186,19 @@ function setMode(m, ti) {
   $("src").style.display = text && !word ? "" : "none";
   if (word) $("wText").textContent = text.trim();
   $("out").innerHTML = "";
-  history = [];
-  histId = 0;
+  const key = m === "tpl" ? "tpl" + ti : m;
+  if (sessions[key]) {
+    cur = sessions[key];
+    history = cur.history;
+    $("out").appendChild(cur.frag);
+    $("q").value = cur.q || "";
+    autoGrow();
+    $("out").scrollTop = cur.top || 1e9;
+    if (m !== "translate") setTimeout(() => $("q").focus(), 50);
+    return;
+  }
+  cur = sessions[key] = { mode: m, history: [], histId: 0, label: modeLabel() };
+  history = cur.history;
   if (m === "translate") {
     // 不自动翻译：按空格或点击开始
     if (text) {
@@ -239,9 +259,9 @@ listen("selection", async (e) => {
   text = e.payload;
   $("src").textContent = text;
   fillTemplates();
-  if (!text) setMode("ask");
-  else if (cfg.code_detect && isCode(text)) setMode("code");
-  else setMode(isChinese(text) ? "ask" : "translate");
+  if (!text) setMode("ask", 0, true);
+  else if (cfg.code_detect && isCode(text)) setMode("code", 0, true);
+  else setMode(isChinese(text) ? "ask" : "translate", 0, true);
 });
 
 $("mTrans").onclick = () => setMode("translate");
