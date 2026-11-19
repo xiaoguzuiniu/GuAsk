@@ -38,6 +38,18 @@
         "focus": false
       },
       {
+        "label": "shot",
+        "url": "shot.html",
+        "title": "GuAsk 截图",
+        "visible": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false
+      },
+      {
         "label": "settings",
         "url": "settings.html",
         "title": "GuAsk 设置",

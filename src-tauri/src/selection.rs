@@ -334,6 +334,12 @@ pub fn show_popup(app: &AppHandle, p: (f64, f64), text: String) {
     let _ = app.emit_to("popup", "selection", text);
 }
 
+/// 打开弹窗并发送任意事件（截图等）
+pub fn show_popup_with<S: serde::Serialize + Clone>(app: &AppHandle, p: (f64, f64), ev: &str, payload: S) {
+    place_popup(app, p);
+    let _ = app.emit_to("popup", ev, payload);
+}
+
 /// 打开弹窗并恢复一条历史会话
 pub fn open_history(app: &AppHandle, item: crate::history::Item) {
     place_popup(app, cursor_pos());

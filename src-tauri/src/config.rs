@@ -43,6 +43,9 @@ pub struct Config {
     pub trigger: String,
     /// 全局快捷键：直接打开提问（空则禁用）
     pub hotkey: String,
+    /// 截图提问快捷键
+    #[serde(default = "default_shot_hotkey")]
+    pub shot_hotkey: String,
     /// 弹窗大小（逻辑像素）
     pub popup_w: f64,
     pub popup_h: f64,
@@ -73,6 +76,7 @@ impl Default for Config {
             ],
             trigger: "ctrl2".into(),
             hotkey: "Alt+Q".into(),
+            shot_hotkey: default_shot_hotkey(),
             popup_w: 440.0,
             popup_h: 380.0,
         }
@@ -94,4 +98,8 @@ pub fn save(dir: PathBuf, cfg: &Config) -> Result<(), String> {
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let s = serde_json::to_string_pretty(cfg).map_err(|e| e.to_string())?;
     std::fs::write(path(dir), s).map_err(|e| e.to_string())
+}
+
+fn default_shot_hotkey() -> String {
+    "Alt+W".into()
 }

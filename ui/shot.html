@@ -1,0 +1,45 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+html, body { margin: 0; height: 100%; overflow: hidden; cursor: crosshair; user-select: none; font: 12px "Segoe UI", "Microsoft YaHei", sans-serif; }
+body { background: rgba(0,0,0,.28); }
+body.sel { background: transparent; }
+#box { position: fixed; display: none; border: 2px solid #3b82f6; box-shadow: 0 0 0 9999px rgba(0,0,0,.35); border-radius: 2px; }
+#size { position: absolute; left: -2px; top: -26px; padding: 2px 8px; border-radius: 6px; background: #2563eb; color: #fff; white-space: nowrap; }
+#tip { position: fixed; top: 24px; left: 50%; transform: translateX(-50%); padding: 8px 16px; border-radius: 999px; background: rgba(24,24,27,.82); color: #fff; font-size: 13px; pointer-events: none; }
+</style></head>
+<body>
+<div id="tip">拖动框选要提问的区域 · Esc 取消</div>
+<div id="box"><span id="size"></span></div>
+<script>
+const { invoke } = window.__TAURI__.core;
+const { listen } = window.__TAURI__.event;
+const box = document.getElementById("box"), tip = document.getElementById("tip");
+let s = null;
+function reset() { s = null; box.style.display = "none"; document.body.classList.remove("sel"); tip.style.display = ""; }
+listen("shot-start", reset);
+window.addEventListener("mousedown", (e) => {
+  if (e.button === 2) { reset(); invoke("shot_cancel"); return; }
+  s = { x: e.clientX, y: e.clientY };
+  tip.style.display = "none";
+});
+window.addEventListener("mousemove", (e) => {
+  if (!s) return;
+  const x = Math.min(s.x, e.clientX), y = Math.min(s.y, e.clientY), w = Math.abs(e.clientX - s.x), h = Math.abs(e.clientY - s.y);
+  document.body.classList.add("sel");
+  Object.assign(box.style, { display: "block", left: x + "px", top: y + "px", width: w + "px", height: h + "px" });
+  const r = devicePixelRatio;
+  document.getElementById("size").textContent = `${Math.round(w * r)} × ${Math.round(h * r)}`;
+});
+window.addEventListener("mouseup", (e) => {
+  if (!s) return;
+  const x = Math.min(s.x, e.clientX), y = Math.min(s.y, e.clientY), w = Math.abs(e.clientX - s.x), h = Math.abs(e.clientY - s.y);
+  reset();
+  if (w < 6 || h < 6) { invoke("shot_cancel"); return; }
+  // 去掉边框再截
+  invoke("shot_done", { x, y, w, h });
+});
+window.addEventListener("contextmenu", (e) => e.preventDefault());
+window.addEventListener("keydown", (e) => { if (e.key === "Escape") { reset(); invoke("shot_cancel"); } });
+</script>
+</body></html>

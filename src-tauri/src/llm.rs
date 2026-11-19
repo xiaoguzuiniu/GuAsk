@@ -7,7 +7,8 @@ use tauri::ipc::Channel;
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Msg {
     pub role: String,
-    pub content: String,
+    /// 字符串，或多模态数组 [{type:"text"},{type:"image_url"}]
+    pub content: Value,
 }
 
 fn client() -> reqwest::Client {

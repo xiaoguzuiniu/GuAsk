@@ -1,6 +1,6 @@
 {
   "identifier": "default",
-  "windows": ["popup", "settings", "bubble"],
+  "windows": ["popup", "settings", "bubble", "shot"],
   "permissions": [
     "core:default",
     "core:window:allow-hide",

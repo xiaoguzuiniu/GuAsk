@@ -2,6 +2,7 @@
 
 mod config;
 mod history;
+mod shot;
 mod llm;
 mod selection;
 
@@ -24,9 +25,9 @@ fn get_config(state: State<AppState>) -> Config {
 
 #[tauri::command]
 fn save_config(app: AppHandle, state: State<AppState>, cfg: Config) -> Result<(), String> {
-    let old_hotkey = state.cfg.lock().unwrap().hotkey.clone();
-    if old_hotkey != cfg.hotkey {
-        register_hotkey(&app, &cfg.hotkey)?;
+    let (oh, os) = { let c = state.cfg.lock().unwrap(); (c.hotkey.clone(), c.shot_hotkey.clone()) };
+    if oh != cfg.hotkey || os != cfg.shot_hotkey {
+        register_hotkey(&app, &cfg.hotkey, &cfg.shot_hotkey)?;
     }
     config::save(app.path().app_config_dir().map_err(|e| e.to_string())?, &cfg)?;
     *selection::TRIGGER.lock().unwrap() = cfg.trigger.clone();
@@ -34,15 +35,41 @@ fn save_config(app: AppHandle, state: State<AppState>, cfg: Config) -> Result<()
     Ok(())
 }
 
-fn register_hotkey(app: &AppHandle, hk: &str) -> Result<(), String> {
-    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+static SHOT_KEY: Mutex<Option<tauri_plugin_global_shortcut::Shortcut>> = Mutex::new(None);
+
+fn register_hotkey(app: &AppHandle, hk: &str, shk: &str) -> Result<(), String> {
+    use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
     let gs = app.global_shortcut();
     let _ = gs.unregister_all();
-    let hk = hk.trim();
-    if hk.is_empty() {
-        return Ok(());
+    *SHOT_KEY.lock().unwrap() = None;
+    let mut errs = vec![];
+    for (k, is_shot) in [(hk.trim(), false), (shk.trim(), true)] {
+        if k.is_empty() {
+            continue;
+        }
+        match k.parse::<Shortcut>() {
+            Ok(sc) => match gs.register(sc) {
+                Ok(_) => {
+                    if is_shot {
+                        *SHOT_KEY.lock().unwrap() = Some(sc);
+                    }
+                }
+                Err(e) => errs.push(format!("快捷键 {k} 注册失败（可能已被占用）：{e}")),
+            },
+            Err(e) => errs.push(format!("快捷键 {k} 格式不对：{e}")),
+        }
     }
-    gs.register(hk).map_err(|e| format!("快捷键 {hk} 注册失败（可能格式不对或已被占用）：{e}"))
+    if errs.is_empty() { Ok(()) } else { Err(errs.join("；")) }
+}
+
+#[tauri::command]
+fn shot_done(app: AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
+    shot::done(&app, x, y, w, h)
+}
+
+#[tauri::command]
+fn shot_cancel(app: AppHandle) {
+    shot::cancel(&app);
 }
 
 #[tauri::command]
@@ -154,9 +181,13 @@ fn main() {
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, _sc, ev| {
+                .with_handler(|app, sc, ev| {
                     if ev.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                        selection::open_blank(app);
+                        if SHOT_KEY.lock().unwrap().as_ref() == Some(sc) {
+                            shot::start(app);
+                        } else {
+                            selection::open_blank(app);
+                        }
                     }
                 })
                 .build(),
@@ -168,7 +199,7 @@ fn main() {
                 let _ = w.hide();
             }
         })
-        .invoke_handler(tauri::generate_handler![get_config, save_config, chat, list_models, test_connection, set_ask_model, get_autostart, set_autostart, bubble_click, save_popup_size, stop_chat, history_save, history_list, history_delete, history_clear, history_open])
+        .invoke_handler(tauri::generate_handler![get_config, save_config, chat, list_models, test_connection, set_ask_model, get_autostart, set_autostart, bubble_click, save_popup_size, stop_chat, history_save, history_list, history_delete, history_clear, history_open, shot_done, shot_cancel])
         .setup(|app| {
             let dir = app.path().app_config_dir()?;
             app.manage(history::open(&dir)?);
@@ -176,6 +207,7 @@ fn main() {
             let first_run = cfg.api_key.is_empty();
             *selection::TRIGGER.lock().unwrap() = cfg.trigger.clone();
             let hotkey = cfg.hotkey.clone();
+            let shot_hotkey = cfg.shot_hotkey.clone();
             if let Some(w) = app.get_webview_window("popup") {
                 let _ = w.set_size(tauri::LogicalSize::new(cfg.popup_w.max(320.0), cfg.popup_h.max(220.0)));
             }
@@ -189,10 +221,11 @@ fn main() {
             };
             let autostart = CheckMenuItem::with_id(app, "autostart", "开机自启", true, auto_on, None::<&str>)?;
             let ask = MenuItem::with_id(app, "ask", "快速提问", true, None::<&str>)?;
+            let shotm = MenuItem::with_id(app, "shot", "截图提问", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
             let sep = PredefinedMenuItem::separator(app)?;
             let sep2 = PredefinedMenuItem::separator(app)?;
-            let menu = Menu::with_items(app, &[&enable, &autostart, &sep, &ask, &sep2, &quit])?;
+            let menu = Menu::with_items(app, &[&enable, &autostart, &sep, &ask, &shotm, &sep2, &quit])?;
             let enable_c = enable.clone();
             let auto_c = autostart.clone();
             TrayIconBuilder::new()
@@ -217,6 +250,7 @@ fn main() {
                         }
                     }
                     "ask" => selection::open_blank(app),
+                    "shot" => shot::start(app),
                     "settings" => open_settings(app),
                     "quit" => app.exit(0),
                     _ => {}
@@ -224,7 +258,7 @@ fn main() {
                 .build(app)?;
 
 
-            if let Err(e) = register_hotkey(app.handle(), &hotkey) {
+            if let Err(e) = register_hotkey(app.handle(), &hotkey, &shot_hotkey) {
                 eprintln!("{e}");
             }
             selection::start(app.handle().clone());

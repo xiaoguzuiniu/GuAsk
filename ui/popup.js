@@ -152,7 +152,8 @@ function modeLabel() {
   return "提问";
 }
 async function saveHistory(s) {
-  const firstQ = (s.history.find((m) => m.role === "user") || {}).content || "";
+  let firstQ = (s.history.find((m) => m.role === "user") || {}).content || "";
+  if (typeof firstQ !== "string") firstQ = "🖼 截图：" + ((firstQ.find((p) => p.type === "text") || {}).text || "");
   try {
     s.histId = await invoke("history_save", {
       item: {
@@ -254,12 +255,39 @@ listen("selection", async (e) => {
     return;
   }
   if (busy && stopFn) stopFn();
+  image = "";
   text = e.payload;
   $("src").textContent = text;
   fillTemplates();
   if (!text) setMode("ask", 0, true);
   else if (cfg.code_detect && isCode(text)) setMode("code", 0, true);
   else setMode(isChinese(text) ? "ask" : "translate", 0, true);
+});
+
+// 截图提问：截图作为第一条消息的图片附件
+let image = "";
+function userBubble(c) {
+  if (typeof c === "string") return addMsg("user", c);
+  const el = addMsg("user", "");
+  for (const p of c) {
+    if (p.type === "image_url") { const i = document.createElement("img"); i.className = "shotimg"; i.src = p.image_url.url; el.appendChild(i); }
+    else if (p.text) { const d = document.createElement("div"); d.textContent = p.text; el.appendChild(d); }
+  }
+  return el;
+}
+listen("image", async (e) => {
+  cfg = await invoke("get_config");
+  fillModels();
+  if (busy && stopFn) stopFn();
+  text = "";
+  $("src").textContent = "";
+  setMode("ask", 0, true);
+  image = e.payload;
+  $("out").innerHTML = "";
+  const h = addMsg("hint shotprev", "");
+  h.innerHTML = `<img class="shotimg" src="${image}"><div>输入问题后回车，或直接回车让 AI 解释这张图</div>`;
+  $("send").disabled = false;
+  setTimeout(() => $("q").focus(), 80);
 });
 
 // 从历史记录打开：恢复到对应模式和会话，可继续追问
@@ -271,7 +299,8 @@ listen("restore", async (e) => {
   try { msgs = JSON.parse(it.messages); } catch {}
   const ti = -1;
   const m = { "翻译": "translate", "单词": "translate", "代码": "code", "提问": "ask" }[it.mode] || (ti >= 0 ? "tpl" : "ask");
-  const first = (msgs[0] || {}).content || "";
+  let first = (msgs[0] || {}).content || "";
+  if (typeof first !== "string") first = "";
   // 提问时第一条消息里包着选中内容；无选中时 source 就是问题本身
   const wrapped = first.match(/^我选中了这段内容：\n"""\n([\s\S]*?)\n"""\n\n我的问题：/);
   text = m === "ask" ? (wrapped ? wrapped[1] : "") : it.source;
@@ -283,6 +312,7 @@ listen("restore", async (e) => {
   cur.histId = it.id;
   cur.label = it.mode;
   msgs.forEach((msg, k) => {
+    if (msg.role === "user" && typeof msg.content !== "string") { userBubble(msg.content); return; }
     if (msg.role === "user") {
       if (k === 0 && m !== "ask") return; // 首条就是选中内容，上方已显示
       let c = msg.content;
@@ -341,6 +371,14 @@ function startTranslate() {
 
 const send = () => {
   const q = $("q").value.trim();
+  if (image && history.length === 0 && mode === "ask" && !busy) {
+    $("q").value = ""; autoGrow();
+    const h = document.querySelector(".msg.hint"); if (h) h.remove();
+    const content = [{ type: "text", text: q || "请识别并解释这张截图的内容；如果是报错或代码，说明原因和解决办法。" }, { type: "image_url", image_url: { url: image } }];
+    userBubble([{ type: "image_url", image_url: { url: image } }, ...(q ? [{ type: "text", text: q }] : [])]);
+    run(content);
+    return;
+  }
   const direct = (mode === "code" || mode === "tpl") && history.length === 0 && text;
   if ((!q && !direct) || busy) return;
   if (direct) {
@@ -361,7 +399,7 @@ const send = () => {
 };
 $("send").onclick = send;
 $("stop").onclick = () => stopFn && stopFn();
-const autoGrow = () => { const q = $("q"); q.style.height = "auto"; q.style.height = q.scrollHeight + "px"; $("send").disabled = !q.value.trim() && !((mode === "code" || mode === "tpl") && history.length === 0 && text); };
+const autoGrow = () => { const q = $("q"); q.style.height = "auto"; q.style.height = q.scrollHeight + "px"; $("send").disabled = !q.value.trim() && !(image && history.length === 0) && !((mode === "code" || mode === "tpl") && history.length === 0 && text); };
 $("q").addEventListener("input", autoGrow);
 $("q").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
 document.addEventListener("keydown", (e) => {

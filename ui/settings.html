@@ -174,6 +174,8 @@ mark { background: #fef08a; color: inherit; border-radius: 2px; }
       </select></label>
     <label class="field"><span>快捷提问<small>不划词也能直接打开提问，如 Alt+Q、Ctrl+Shift+Space，留空禁用</small></span>
       <input id="hotkey" placeholder="Alt+Q"></label>
+    <label class="field"><span>截图提问<small>框选屏幕区域后拿截图提问（需模型支持图片），留空禁用</small></span>
+      <input id="shot_hotkey" placeholder="Alt+W"></label>
     <label class="field"><span>目标语言</span><input id="target_lang" placeholder="简体中文"></label>
     <label class="switch"><span>划词后自动翻译 / 提问（英文自动翻译，中文进入提问）</span><input type="checkbox" id="auto_translate"><i></i></label>
     <label class="field"><span>翻译提示词<small>{lang} 会替换为目标语言</small></span><textarea id="translate_prompt"></textarea></label>
@@ -194,7 +196,7 @@ mark { background: #fef08a; color: inherit; border-radius: 2px; }
 <script src="md.js"></script>
 <script>
 const { invoke } = window.__TAURI__.core;
-const keys = ["base_url", "api_key", "model", "trigger", "hotkey", "target_lang", "translate_prompt", "ask_prompt", "word_prompt", "code_prompt"];
+const keys = ["base_url", "api_key", "model", "trigger", "hotkey", "shot_hotkey", "target_lang", "translate_prompt", "ask_prompt", "word_prompt", "code_prompt"];
 const $ = (id) => document.getElementById(id);
 const escA = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
