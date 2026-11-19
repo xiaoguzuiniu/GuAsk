@@ -76,7 +76,10 @@ pub fn start(app: AppHandle) {
                     thread::spawn(move || on_select(app, p, Some(seq)));
                 }
             }
-            EventType::Wheel { .. } => hide_bubble(&app),
+            EventType::Wheel { .. } => {
+                crate::shot::WHEEL.fetch_add(1, Ordering::Relaxed);
+                hide_bubble(&app)
+            }
             EventType::KeyPress(k) => {
                 if k == Key::Escape || k == Key::Return {
                     crate::shot::STOP.store(true, Ordering::Relaxed);

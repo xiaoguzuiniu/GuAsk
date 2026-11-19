@@ -38,6 +38,8 @@ pub fn start(app: &AppHandle) {
     let _ = w.set_focus();
 }
 
+/// 全局滚轮计数：长截图只在用户真的滚动后才去对齐/提示
+pub static WHEEL: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 pub static STOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// 框选完成：参数为遮罩窗口内的 CSS 像素；long=长截图（自动滚动拼接）
@@ -95,11 +97,26 @@ fn long_capture(app: &AppHandle, x: i32, y: i32, w: i32, h: i32) -> Result<(Vec<
     let mut psig = row_sigs(&prev, w as usize, h as usize);
     // pos = 当前帧顶部在拼接图中的位置（可上下滚动，只有超出已拼部分才追加）
     let mut pos: i64 = 0;
+    let mut synced = WHEEL.load(Ordering::Relaxed);
+    let mut last_wheel_at = std::time::Instant::now() - std::time::Duration::from_secs(10);
     let mut lost = false;
     let mut lost_since: Option<std::time::Instant> = None;
     let t0 = std::time::Instant::now();
     while !STOP.load(Ordering::Relaxed) && out.len() / row < 30000 && t0.elapsed().as_secs() < 300 {
         std::thread::sleep(std::time::Duration::from_millis(30));
+        let wn = WHEEL.load(Ordering::Relaxed);
+        if wn != synced {
+            synced = wn;
+            last_wheel_at = std::time::Instant::now();
+        }
+        // 最近 1.5 秒内没有滚轮：画面变化来自动图/悬停等，不是滚动，忽略
+        if last_wheel_at.elapsed().as_millis() > 1500 {
+            if lost {
+                // 停下来了还对不上，继续尝试（用户可能往回滚了），但不重复提示
+            } else {
+                continue;
+            }
+        }
         let cur = capture(x, y, w, h)?;
         if cur == last {
             continue; // 画面没变
@@ -126,7 +143,7 @@ fn long_capture(app: &AppHandle, x: i32, y: i32, w: i32, h: i32) -> Result<(Vec<
             None => {
                 // 对不上可能只是滚动动画中途；持续 0.6 秒都对不上才提示
                 let since = *lost_since.get_or_insert_with(std::time::Instant::now);
-                if !lost && since.elapsed().as_millis() > 600 {
+                if !lost && since.elapsed().as_millis() > 800 {
                     lost = true;
                     let _ = app.emit_to("shot", "shot-warn", true);
                 }
@@ -144,50 +161,65 @@ fn long_capture(app: &AppHandle, x: i32, y: i32, w: i32, h: i32) -> Result<(Vec<
     Ok((out, total))
 }
 
-/// 每行的特征值：忽略左右边缘（滚动条、边框），颜色量化以容忍轻微抖动；
+const SEG: usize = 8;
+type Sig = Option<[u32; SEG]>;
+
+/// 每行分成 8 段分别算特征值（动图/表情只影响局部段）；忽略左右边缘（滚动条、边框）；
 /// 纯色行（空白背景）记为 None，不参与匹配
-fn row_sigs(img: &[u8], w: usize, h: usize) -> Vec<Option<u64>> {
+fn row_sigs(img: &[u8], w: usize, h: usize) -> Vec<Sig> {
     let row = w * 4;
-    let (l, r) = ((w / 20).max(2), w.saturating_sub((w / 20).max(24)));
-    let r = r.max(l + 1);
+    let l = (w / 20).max(2);
+    let r = w.saturating_sub((w / 20).max(24)).max(l + SEG);
+    let seg = (r - l) / SEG;
     (0..h)
         .map(|y| {
             let px = &img[y * row..(y + 1) * row];
-            let mut hsh: u64 = 1469598103934665603;
             let first = (px[l * 4] >> 3, px[l * 4 + 1] >> 3, px[l * 4 + 2] >> 3);
             let mut uniform = true;
-            for x in l..r {
-                let i = x * 4;
-                let c = (px[i] >> 3, px[i + 1] >> 3, px[i + 2] >> 3);
-                if c != first {
-                    uniform = false;
+            let mut s = [0u32; SEG];
+            for (k, sv) in s.iter_mut().enumerate() {
+                let mut hsh: u32 = 2166136261;
+                for x in (l + k * seg)..(l + (k + 1) * seg) {
+                    let i = x * 4;
+                    let c = (px[i] >> 3, px[i + 1] >> 3, px[i + 2] >> 3);
+                    if c != first {
+                        uniform = false;
+                    }
+                    for v in [c.0, c.1, c.2] {
+                        hsh ^= v as u32;
+                        hsh = hsh.wrapping_mul(16777619);
+                    }
                 }
-                for v in [c.0, c.1, c.2] {
-                    hsh ^= v as u64;
-                    hsh = hsh.wrapping_mul(1099511628211);
-                }
+                *sv = hsh;
             }
-            if uniform { None } else { Some(hsh) }
+            if uniform { None } else { Some(s) }
         })
         .collect()
 }
 
+fn row_eq(a: &Sig, b: &Sig) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => a.iter().zip(b).filter(|(x, y)| x == y).count() * 4 >= SEG * 3,
+        (None, None) => true,
+        _ => false,
+    }
+}
+
 /// 找 cur 相对 prev 的滚动量 d（向下滚为正）：cur[i] == prev[i + d]
-/// 只统计有内容的行，匹配率足够高才认可；允许局部变化（悬停高亮、滚动条等）
-fn match_shift(p: &[Option<u64>], c: &[Option<u64>]) -> Option<i64> {
+fn match_shift(p: &[Sig], c: &[Sig]) -> Option<i64> {
     let h = p.len() as i64;
     let min_overlap = (h / 8).max(16);
-    let mut best: Option<(i64, usize, usize)> = None; // (d, 命中, 有效行)
+    let mut best: Option<(i64, usize, usize)> = None;
     for d in -(h - min_overlap)..=(h - min_overlap) {
         let (mut hit, mut n) = (0usize, 0usize);
         let (a, b) = (0.max(-d), h.min(h - d));
         for i in a..b {
-            let (ci, pi) = (c[i as usize], p[(i + d) as usize]);
+            let (ci, pi) = (&c[i as usize], &p[(i + d) as usize]);
             if ci.is_none() && pi.is_none() {
                 continue;
             }
             n += 1;
-            if ci == pi {
+            if row_eq(ci, pi) {
                 hit += 1;
             }
         }
@@ -203,12 +235,7 @@ fn match_shift(p: &[Option<u64>], c: &[Option<u64>]) -> Option<i64> {
         }
     }
     let (d, hit, n) = best?;
-    // 至少 60% 的有内容行对得上，并且命中行数不能太少
-    if hit * 10 >= n * 6 && hit >= 6 {
-        Some(d)
-    } else {
-        None
-    }
+    if hit * 10 >= n * 6 && hit >= 6 { Some(d) } else { None }
 }
 
 fn capture(x: i32, y: i32, w: i32, h: i32) -> Result<Vec<u8>, String> {
@@ -268,7 +295,7 @@ mod tests {
     #[test]
     fn shift_detect() {
         // 模拟一张长页面：每 7 行一段文字，其余空白
-        let page: Vec<Option<u64>> = (0..2000u64).map(|i| if i % 7 < 3 { Some(i * 31 + 5) } else { None }).collect();
+        let page: Vec<Sig> = (0..2000u32).map(|i| if i % 7 < 3 { Some([i * 31 + 5; SEG]) } else { None }).collect();
         let win = |top: usize| page[top..top + 400].to_vec();
         assert_eq!(match_shift(&win(100), &win(100)), Some(0));
         assert_eq!(match_shift(&win(100), &win(103)), Some(3));
