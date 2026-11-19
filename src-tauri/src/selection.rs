@@ -59,7 +59,16 @@ pub fn start(app: AppHandle) {
                 last_sel = Some((Instant::now(), seq_at_press));
                 let trig = TRIGGER.lock().unwrap().clone();
                 if trig == "icon" {
-                    show_bubble(&app, pos, seq_at_press);
+                    // 先确认真的有选中文本，避免双击空白处也出现图标
+                    let app = app.clone();
+                    let p = pos;
+                    let seq = seq_at_press;
+                    thread::spawn(move || {
+                        thread::sleep(Duration::from_millis(60));
+                        if has_selection() {
+                            show_bubble(&app, p, seq);
+                        }
+                    });
                 } else if trig == "auto" {
                     let app = app.clone();
                     let p = pos;
@@ -223,6 +232,53 @@ fn uia_selection() -> Option<String> {
         }
         let s = s.trim().to_string();
         (!s.is_empty()).then_some(s)
+    }
+}
+
+/// 判断当前是否真的选中了文本：
+/// - 支持 UI Automation TextPattern 的程序：以实际选区为准；
+/// - 不支持的程序：鼠标是 I 形文本光标才认为在文字上划词。
+fn has_selection() -> bool {
+    match uia_selection_state() {
+        Some(has) => has,
+        None => cursor_is_ibeam(),
+    }
+}
+
+/// Some(true/false)=能读到选区并判断是否非空；None=该程序不支持 TextPattern
+fn uia_selection_state() -> Option<bool> {
+    use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED};
+    use windows::Win32::UI::Accessibility::{CUIAutomation, IUIAutomation, IUIAutomationTextPattern, UIA_TextPatternId};
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        let uia: IUIAutomation = CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER).ok()?;
+        let el = uia.GetFocusedElement().ok()?;
+        let pat: IUIAutomationTextPattern = el.GetCurrentPatternAs(UIA_TextPatternId).ok()?;
+        let ranges = pat.GetSelection().ok()?;
+        for i in 0..ranges.Length().ok()? {
+            if let Ok(r) = ranges.GetElement(i) {
+                if let Ok(t) = r.GetText(200) {
+                    if !t.to_string().trim().is_empty() {
+                        return Some(true);
+                    }
+                }
+            }
+        }
+        Some(false)
+    }
+}
+
+fn cursor_is_ibeam() -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{GetCursorInfo, LoadCursorW, CURSORINFO, IDC_IBEAM};
+    unsafe {
+        let mut ci = CURSORINFO { cbSize: std::mem::size_of::<CURSORINFO>() as u32, ..Default::default() };
+        if GetCursorInfo(&mut ci).is_err() {
+            return true;
+        }
+        match LoadCursorW(None, IDC_IBEAM) {
+            Ok(ib) => ci.hCursor == ib,
+            Err(_) => true,
+        }
     }
 }
 
