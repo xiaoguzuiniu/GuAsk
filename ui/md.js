@@ -3,10 +3,47 @@ function esc(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 function inline(s) {
+  // 行内代码先抽出来，避免内部的 * \ 被当作格式
+  const codes = [];
+  s = s.replace(/`([^`]+)`/g, (_, c) => { codes.push(c); return `\u0000${codes.length - 1}\u0000`; });
+  // 反斜杠转义：\| \* \_ \` \# 等显示为字符本身
+  const escs = [];
+  s = s.replace(/\\([\\`*_{}\[\]()#+\-.!|<>~])/g, (_, c) => { escs.push(c); return `\u0001${escs.length - 1}\u0001`; });
   return esc(s)
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/\*\*\s*([^*]+?)\s*\*\*/g, "<b>$1</b>")
-    .replace(/(^|[^*])\*([^*\s][^*]*?)\*/g, "$1<i>$2</i>");
+    .replace(/(^|[^*])\*([^*\s][^*]*?)\*/g, "$1<i>$2</i>")
+    .replace(/~~([^~]+)~~/g, "<s>$1</s>")
+    .replace(/\u0001(\d+)\u0001/g, (_, i) => esc(escs[i]))
+    .replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${esc(codes[i])}</code>`);
+}
+
+// 表格行拆分：忽略首尾竖线，跳过 \| 和行内代码里的 |
+function splitRow(line) {
+  let s = line.trim().replace(/^\|/, "");
+  if (/[^\\]\|$/.test(s) || s === "|") s = s.slice(0, -1);
+  const cells = []; let cur = "", inCode = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === "\\" && s[i + 1] === "|") { cur += "\\|"; i++; continue; }
+    if (c === "`") inCode = !inCode;
+    if (c === "|" && !inCode) { cells.push(cur.trim()); cur = ""; continue; }
+    cur += c;
+  }
+  cells.push(cur.trim());
+  return cells;
+}
+const isSep = (l) => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(l);
+
+function table(head, sep, rows) {
+  const al = splitRow(sep).map((c) => (/^:-+:$/.test(c) ? "center" : /-:$/.test(c) ? "right" : ""));
+  const td = (tag, c, i) => `<${tag}${al[i] ? ` style="text-align:${al[i]}"` : ""}>${inline(c)}</${tag}>`;
+  const h = splitRow(head);
+  let out = `<div class="tbl"><table><thead><tr>${h.map((c, i) => td("th", c, i)).join("")}</tr></thead><tbody>`;
+  for (const r of rows) {
+    const cs = splitRow(r);
+    out += `<tr>${h.map((_, i) => td("td", cs[i] || "", i)).join("")}</tr>`;
+  }
+  return out + "</tbody></table></div>";
 }
 
 // 轻量语法高亮：注释 / 字符串 / 数字 / 关键字 / 函数调用 / 类型
@@ -53,7 +90,8 @@ function renderMd(src) {
   let html = "", list = null, inCode = false, code = [], para = [], lang = "";
   const flushPara = () => { if (para.length) { html += `<p>${para.map(inline).join("<br>")}</p>`; para = []; } };
   const closeList = () => { if (list) { html += `</${list}>`; list = null; } };
-  for (const line of lines) {
+  for (let li = 0; li < lines.length; li++) {
+    const line = lines[li];
     if (line.trim().startsWith("```")) {
       if (inCode) { html += codeBlock(code.join("\n"), lang); code = []; inCode = false; }
       else { flushPara(); closeList(); inCode = true; lang = line.trim().slice(3).trim(); }
@@ -62,6 +100,16 @@ function renderMd(src) {
     if (inCode) { code.push(line); continue; }
     let m;
     if (!line.trim()) { flushPara(); closeList(); continue; }
+    // 表格：当前行含 |，下一行是 |---|---| 分隔线
+    if (line.includes("|") && li + 1 < lines.length && isSep(lines[li + 1])) {
+      flushPara(); closeList();
+      const rows = [];
+      let j = li + 2;
+      while (j < lines.length && lines[j].includes("|") && lines[j].trim()) rows.push(lines[j++]);
+      html += table(line, lines[li + 1], rows);
+      li = j - 1;
+      continue;
+    }
     if ((m = line.match(/^(#{1,6})\s+(.*)/))) {
       flushPara(); closeList();
       const lv = Math.min(m[1].length + 2, 6);
