@@ -256,6 +256,7 @@ listen("selection", async (e) => {
   }
   if (busy && stopFn) stopFn();
   images = [];
+  if (typeof atts !== "undefined") { atts = []; renderAtts(); }
   text = e.payload;
   $("src").textContent = text;
   fillTemplates();
@@ -394,6 +395,18 @@ const send = () => {
     run(content);
     return;
   }
+  if (atts.length && !busy) {
+    const imgs = atts.map((u) => ({ type: "image_url", image_url: { url: u } }));
+    atts = []; renderAtts();
+    $("q").value = ""; autoGrow();
+    const h = document.querySelector(".msg.hint"); if (h) h.remove();
+    const ask = q || (imgs.length > 1 ? "请识别并解释这几张图片的内容；如果是报错或代码，说明原因和解决办法。" : "请识别并解释这张图片的内容；如果是报错或代码，说明原因和解决办法。");
+    const t = history.length === 0 && text ? `我选中了这段内容：\n"""\n${text}\n"""\n\n我的问题：${ask}` : ask;
+    if (mode === "translate" && history.length === 0) setMode("ask", 0, true);
+    userBubble([...imgs, ...(q ? [{ type: "text", text: q }] : [])]);
+    run([{ type: "text", text: t }, ...imgs]);
+    return;
+  }
   const direct = (mode === "code" || mode === "tpl") && history.length === 0 && text;
   if ((!q && !direct) || busy) return;
   if (direct) {
@@ -412,9 +425,46 @@ const send = () => {
   const content = history.length === 0 && text ? `我选中了这段内容：\n"""\n${text}\n"""\n\n我的问题：${q}` : q;
   run(content);
 };
+// ---- 粘贴图片：附加到下一条消息 ----
+let atts = [];
+function renderAtts() {
+  const box = $("atts");
+  box.innerHTML = atts.map((u, i) => `<div class="att"><img src="${u}"><button data-i="${i}" title="移除">×</button></div>`).join("");
+  box.style.display = atts.length ? "flex" : "none";
+  box.querySelectorAll("button").forEach((b) => (b.onclick = () => { atts.splice(+b.dataset.i, 1); renderAtts(); autoGrow(); }));
+}
+const toDataUrl = (file) => new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(file); });
+// 大图压缩到最长边 2000，避免请求过大
+const shrink = (url) => new Promise((ok) => {
+  const im = new Image();
+  im.onload = () => {
+    const k = Math.min(1, 2000 / Math.max(im.width, im.height));
+    if (k === 1 && url.length < 3e6) return ok(url);
+    const c = document.createElement("canvas");
+    c.width = Math.round(im.width * k); c.height = Math.round(im.height * k);
+    c.getContext("2d").drawImage(im, 0, 0, c.width, c.height);
+    ok(c.toDataURL("image/png"));
+  };
+  im.onerror = () => ok(url);
+  im.src = url;
+});
+document.addEventListener("paste", async (e) => {
+  const files = [...(e.clipboardData?.items || [])].filter((it) => it.type.startsWith("image/")).map((it) => it.getAsFile()).filter(Boolean);
+  if (!files.length) return;
+  e.preventDefault();
+  $("askBox").style.display = "flex";
+  for (const f of files) {
+    const url = await shrink(await toDataUrl(f));
+    // 截图会话还没发出时，直接并入截图列表
+    if (images.length && history.length === 0 && mode === "ask" && document.querySelector(".msg.shotprev")) { images.push(url); renderShots(); }
+    else atts.push(url);
+  }
+  renderAtts(); autoGrow(); $("q").focus();
+});
+
 $("send").onclick = send;
 $("stop").onclick = () => stopFn && stopFn();
-const autoGrow = () => { const q = $("q"); q.style.height = "auto"; q.style.height = q.scrollHeight + "px"; $("send").disabled = !q.value.trim() && !(images.length && history.length === 0) && !((mode === "code" || mode === "tpl") && history.length === 0 && text); };
+const autoGrow = () => { const q = $("q"); q.style.height = "auto"; q.style.height = q.scrollHeight + "px"; $("send").disabled = !q.value.trim() && !(typeof atts !== "undefined" && atts.length) && !(images.length && history.length === 0) && !((mode === "code" || mode === "tpl") && history.length === 0 && text); };
 $("q").addEventListener("input", autoGrow);
 $("q").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
 document.addEventListener("keydown", (e) => {

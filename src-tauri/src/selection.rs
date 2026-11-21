@@ -21,7 +21,8 @@ fn trigger_keys(t: &str) -> Option<[Key; 2]> {
     match t {
         "alt2" => Some([Key::Alt, Key::AltGr]),
         "shift2" => Some([Key::ShiftLeft, Key::ShiftRight]),
-        "auto" | "icon" => None,
+        "auto" => None,
+        // 小图标模式：同时支持双击 Ctrl 唤出
         _ => Some([Key::ControlLeft, Key::ControlRight]),
     }
 }
